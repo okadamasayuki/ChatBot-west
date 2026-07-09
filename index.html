@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会計相談チャット</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    background: #666e7a;
+    display: flex;
+    justify-content: center;
+  }
+  #app {
+    width: 100%;
+    max-width: 480px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: #8cabd8;
+    position: relative;
+  }
+
+  /* ===== Header ===== */
+  header {
+    background: #273246;
+    color: #fff;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  header .title { font-size: 15px; font-weight: 600; flex: 1; }
+  header button {
+    background: rgba(255,255,255,.15);
+    border: none;
+    color: #fff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  header button:hover { background: rgba(255,255,255,.3); }
+
+  /* ===== Tabs ===== */
+  #tabs {
+    display: flex;
+    background: #273246;
+    flex-shrink: 0;
+  }
+  #tabs .tab {
+    flex: 1;
+    text-align: center;
+    padding: 10px 0;
+    color: #9fb0c8;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    position: relative;
+  }
+  #tabs .tab.active { color: #fff; border-bottom-color: #06c755; font-weight: 600; }
+  .badge {
+    display: none;
+    position: absolute;
+    top: 4px;
+    right: 18%;
+    background: #ff3b30;
+    color: #fff;
+    font-size: 10px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    border-radius: 8px;
+    padding: 0 4px;
+  }
+  .badge.show { display: inline-block; }
+
+  /* ===== Panels ===== */
+  .panel { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+  .panel.active { display: flex; }
+
+  /* ===== Chat (questioner) ===== */
+  #chatLog {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg { display: flex; flex-direction: column; max-width: 78%; }
+  .msg .bubble {
+    padding: 9px 12px;
+    border-radius: 14px;
+    font-size: 13.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 1px 1px rgba(0,0,0,.12);
+  }
+  .msg .meta { font-size: 10px; color: #47566e; margin-top: 3px; }
+  .msg.me { align-self: flex-end; align-items: flex-end; }
+  .msg.me .bubble { background: #8de055; border-top-right-radius: 3px; }
+  .msg.other { align-self: flex-start; align-items: flex-start; }
+  .msg.other .bubble { background: #fff; border-top-left-radius: 3px; }
+  .msg.other .sender { font-size: 11px; color: #33415c; margin-bottom: 3px; padding-left: 4px; }
+  .msg.expert .bubble { background: #fff8dc; border: 1px solid #e8d48a; }
+  .msg.system { align-self: center; max-width: 90%; }
+  .msg.system .bubble {
+    background: rgba(39,50,70,.55);
+    color: #fff;
+    font-size: 11.5px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: none;
+  }
+  .typing { display: inline-block; }
+  .typing span {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: #999;
+    border-radius: 50%;
+    margin: 0 1.5px;
+    animation: blink 1.2s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100% { opacity: .25; } 40% { opacity: 1; } }
+
+  #inputBar {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: #f0f1f5;
+    flex-shrink: 0;
+  }
+  #inputBar textarea {
+    flex: 1;
+    border: 1px solid #ccc;
+    border-radius: 18px;
+    padding: 9px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    max-height: 100px;
+    outline: none;
+  }
+  #inputBar button {
+    background: #06c755;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 42px; height: 42px;
+    font-size: 17px;
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: flex-end;
+  }
+  #inputBar button:disabled { background: #a8d8bc; cursor: default; }
+
+  /* ===== Expert panel ===== */
+  #expertList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #eef1f6;
+  }
+  .case {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+  }
+  .case .q-label {
+    display: inline-block;
+    background: #273246;
+    color: #fff;
+    font-size: 10.5px;
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-bottom: 6px;
+  }
+  .case .q-label.done { background: #06c755; }
+  .case .q-text { font-size: 14px; font-weight: 600; line-height: 1.55; margin-bottom: 8px; white-space: pre-wrap; }
+  .case .reason { font-size: 12px; color: #666; background: #f5f6f8; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; line-height: 1.5; }
+  .case .opt {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    border: 1.5px solid #d4d9e2;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .case .opt:hover { border-color: #06c755; }
+  .case .opt.selected { border-color: #06c755; background: #f0fbf4; }
+  .case .opt input { margin-top: 3px; }
+  .case .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .btn {
+    border: none;
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn.primary { background: #06c755; color: #fff; }
+  .btn.primary:disabled { background: #a8d8bc; cursor: default; }
+  .btn.secondary { background: #e5e8ee; color: #333; }
+  .case textarea.draft {
+    width: 100%;
+    border: 1.5px solid #d4d9e2;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 13px;
+    font-family: inherit;
+    line-height: 1.6;
+    min-height: 140px;
+    margin-top: 10px;
+    outline: none;
+  }
+  .case textarea.draft:focus { border-color: #06c755; }
+  .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
+  .empty-note { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 0; }
+
+  /* ===== Modal ===== */
+  .modal-bg {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,.5);
+    z-index: 50;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    width: 100%;
+    max-width: 380px;
+  }
+  .modal h2 { font-size: 15px; margin-bottom: 10px; }
+  .modal p { font-size: 12px; color: #666; line-height: 1.6; margin-bottom: 12px; }
+  .modal input {
+    width: 100%;
+    border: 1.5px solid #d4d9e2;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 13px;
+    margin-bottom: 12px;
+    outline: none;
+  }
+  .modal input:focus { border-color: #06c755; }
+  .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .warn { background: #fff4e5; border: 1px solid #f0c98a; border-radius: 8px; padding: 8px 10px; font-size: 11px; color: #8a5a00; line-height: 1.5; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title">💬 会計相談チャット</div>
+    <button id="btnDownload" title="Q&A履歴をダウンロード">⬇ 履歴</button>
+    <button id="btnSettings" title="設定">⚙</button>
+  </header>
+
+  <div id="tabs">
+    <div class="tab active" data-tab="chat">質問者<span class="badge" id="badgeChat"></span></div>
+    <div class="tab" data-tab="expert">専門家<span class="badge" id="badgeExpert"></span></div>
+  </div>
+
+  <!-- 質問者パネル -->
+  <div class="panel active" id="panel-chat">
+    <div id="chatLog"></div>
+    <div id="inputBar">
+      <textarea id="qInput" rows="1" placeholder="会計に関する質問を入力..."></textarea>
+      <button id="btnSend">➤</button>
+    </div>
+  </div>
+
+  <!-- 専門家パネル -->
+  <div class="panel" id="panel-expert">
+    <div id="expertList"></div>
+  </div>
+
+  <!-- 設定モーダル -->
+  <div class="modal-bg" id="modalSettings">
+    <div class="modal">
+      <h2>設定</h2>
+      <div class="warn">⚠ このアプリはブラウザから直接 Claude API を呼び出します。API キーはこの端末の localStorage にのみ保存されますが、共有端末では使用しないでください。</div>
+      <p>Anthropic API キー(<code>sk-ant-...</code>)を入力してください。</p>
+      <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...">
+      <div class="row">
+        <button class="btn secondary" id="btnClearData">全データ削除</button>
+        <button class="btn primary" id="btnSaveKey">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ダウンロードモーダル -->
+  <div class="modal-bg" id="modalDownload">
+    <div class="modal">
+      <h2>Q&A履歴のダウンロード</h2>
+      <p id="dlCount"></p>
+      <div class="row">
+        <button class="btn secondary" id="btnDlClose">閉じる</button>
+        <button class="btn primary" id="btnDlCsv">CSV</button>
+        <button class="btn primary" id="btnDlJson">JSON</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ================= State ================= */
+const LS_KEY = "kaikei-chat-state-v1";
+const state = loadState();
+
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_KEY));
+    if (s && Array.isArray(s.messages) && Array.isArray(s.cases)) return s;
+  } catch (e) {}
+  return { apiKey: "", messages: [], cases: [], qaLog: [] };
+}
+function saveState() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function nowIso() { return new Date().toISOString(); }
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* ================= Claude API ================= */
+const MODEL = "claude-opus-4-8";
+const API_URL = "https://api.anthropic.com/v1/messages";
+
+const TRIAGE_SCHEMA = {
+  type: "object",
+  properties: {
+    decision: { type: "string", enum: ["answer", "escalate"] },
+    answer: { type: "string", description: "decision が answer の場合の回答本文。escalate の場合は空文字。" },
+    escalation_reason: { type: "string", description: "decision が escalate の場合、専門家に確認が必要な理由。answer の場合は空文字。" },
+    options: {
+      type: "array",
+      items: { type: "string" },
+      description: "decision が escalate の場合、専門家が選ぶ回答方針の選択肢(2〜4個)。answer の場合は空配列。"
+    }
+  },
+  required: ["decision", "answer", "escalation_reason", "options"],
+  additionalProperties: false
+};
+
+const TRIAGE_SYSTEM = `あなたは会計・経理の質問に答えるAIアシスタントです。日本の会計基準・税務の一般的な知識に基づいて回答します。
+
+判断基準:
+- 一般的な会計知識(仕訳の方法、勘定科目の選択、会計用語の説明、一般的な処理手順など)で確実に答えられる質問 → decision: "answer" とし、丁寧で分かりやすい回答を answer に書いてください。
+- 次のような質問 → decision: "escalate" としてください:
+  - 個別の状況次第で結論が変わる質問(金額の妥当性、具体的な税務判断など)
+  - 税理士・公認会計士の専門的判断や最新の税制確認が必要な質問
+  - 回答に法的責任が伴う可能性がある質問
+  - 情報が不足していて確実な回答ができない質問
+
+escalate の場合:
+- escalation_reason に専門家確認が必要な理由を簡潔に書く
+- options に、専門家が選択できる「回答の方向性」の候補を2〜4個書く。各選択肢は具体的な回答方針を1〜2文で表現すること(例:「消耗品費として処理してよいと案内する」「資産計上して減価償却が必要と案内する」など)
+
+回答は常に日本語で、専門用語には簡単な補足を付けてください。`;
+
+const DRAFT_SYSTEM = `あなたは会計事務所のアシスタントです。専門家が選択した回答方針に基づいて、質問者に送る丁寧な回答文(案)を日本語で作成してください。
+
+要件:
+- 質問者に直接送信できる完成した文章にする(挨拶は簡潔に、署名は不要)
+- 選択された方針に沿った内容にする
+- 根拠や注意点があれば簡潔に添える
+- 400字程度まで、読みやすく`;
+
+async function callClaude({ system, messages, schema }) {
+  if (!state.apiKey) throw new Error("NO_API_KEY");
+  const body = {
+    model: MODEL,
+    max_tokens: 8192,
+    thinking: { type: "adaptive" },
+    system,
+    messages
+  };
+  if (schema) body.output_config = { format: { type: "json_schema", schema } };
+
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": state.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).error?.message || ""; } catch (e) {}
+    if (res.status === 401) throw new Error("APIキーが無効です。設定(⚙)から正しいキーを入力してください。");
+    if (res.status === 429) throw new Error("リクエストが混み合っています。しばらく待ってから再度お試しください。");
+    throw new Error(`APIエラー (${res.status}): ${detail}`);
+  }
+
+  const data = await res.json();
+  if (data.stop_reason === "refusal") {
+    throw new Error("この内容にはお答えできません。別の質問をお試しください。");
+  }
+  const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  if (!text) throw new Error("回答を取得できませんでした。もう一度お試しください。");
+  return text;
+}
+
+/* ================= 質問者ビュー ================= */
+const chatLog = document.getElementById("chatLog");
+const qInput = document.getElementById("qInput");
+const btnSend = document.getElementById("btnSend");
+
+function addMessage(msg) {
+  state.messages.push(msg);
+  saveState();
+  renderChat();
+}
+
+function renderChat() {
+  chatLog.innerHTML = "";
+  if (state.messages.length === 0) {
+    chatLog.innerHTML = '<div class="msg system"><div class="bubble">会計に関する質問を入力してください。AIが回答できない場合は会計の専門家におつなぎします。</div></div>';
+  }
+  for (const m of state.messages) {
+    const div = document.createElement("div");
+    if (m.role === "user") {
+      div.className = "msg me";
+      div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
+    } else if (m.role === "ai") {
+      div.className = "msg other";
+      div.innerHTML = `<div class="sender">🤖 AIアシスタント</div><div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
+    } else if (m.role === "expert") {
+      div.className = "msg other expert";
+      div.innerHTML = `<div class="sender">👤 会計専門家</div><div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
+    } else {
+      div.className = "msg system";
+      div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}</div>`;
+    }
+    chatLog.appendChild(div);
+  }
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+let sending = false;
+async function sendQuestion() {
+  const text = qInput.value.trim();
+  if (!text || sending) return;
+  if (!state.apiKey) { openSettings(); return; }
+
+  sending = true;
+  btnSend.disabled = true;
+  qInput.value = "";
+  addMessage({ id: uid(), role: "user", text, ts: nowIso() });
+
+  // typing indicator
+  const typing = document.createElement("div");
+  typing.className = "msg other";
+  typing.innerHTML = '<div class="sender">🤖 AIアシスタント</div><div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
+  chatLog.appendChild(typing);
+  chatLog.scrollTop = chatLog.scrollHeight;
+
+  try {
+    // 直近の会話履歴(最大10往復分)をコンテキストとして渡す
+    const history = state.messages
+      .filter(m => m.role === "user" || m.role === "ai" || m.role === "expert")
+      .slice(-20)
+      .map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+    // 末尾が今回の質問(user)になるよう保証
+    if (history.length === 0 || history[history.length - 1].role !== "user") {
+      history.push({ role: "user", content: text });
+    }
+    // 連続する同 role はAPIが結合して扱うためそのまま送る
+
+    const raw = await callClaude({ system: TRIAGE_SYSTEM, messages: history, schema: TRIAGE_SCHEMA });
+    const result = JSON.parse(raw);
+
+    typing.remove();
+
+    if (result.decision === "answer" && result.answer) {
+      addMessage({ id: uid(), role: "ai", text: result.answer, ts: nowIso() });
+      state.qaLog.push({ question: text, answered_by: "AI", answer: result.answer, asked_at: nowIso(), answered_at: nowIso() });
+      saveState();
+    } else {
+      // エスカレーション
+      const caseObj = {
+        id: uid(),
+        question: text,
+        reason: result.escalation_reason || "専門家の確認が必要な質問です。",
+        options: (result.options && result.options.length ? result.options : ["質問内容を確認のうえ個別に回答する"]),
+        selectedOption: null,
+        draft: null,
+        status: "pending", // pending -> drafted -> answered
+        askedAt: nowIso()
+      };
+      state.cases.push(caseObj);
+      addMessage({ id: uid(), role: "ai", text: "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。", ts: nowIso() });
+      saveState();
+      renderExpert();
+      updateBadges();
+    }
+  } catch (err) {
+    typing.remove();
+    if (err.message === "NO_API_KEY") { openSettings(); }
+    else addMessage({ id: uid(), role: "system", text: "⚠ " + err.message, ts: nowIso() });
+  } finally {
+    sending = false;
+    btnSend.disabled = false;
+  }
+}
+
+btnSend.addEventListener("click", sendQuestion);
+qInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    sendQuestion();
+  }
+});
+
+/* ================= 専門家ビュー ================= */
+const expertList = document.getElementById("expertList");
+
+function renderExpert() {
+  expertList.innerHTML = "";
+  const open = state.cases.filter(c => c.status !== "answered");
+  const done = state.cases.filter(c => c.status === "answered");
+
+  if (state.cases.length === 0) {
+    expertList.innerHTML = '<div class="empty-note">専門家への確認依頼はありません。<br>AIが回答できない質問が届くとここに表示されます。</div>';
+    return;
+  }
+  for (const c of [...open, ...done]) expertList.appendChild(renderCase(c));
+}
+
+function renderCase(c) {
+  const div = document.createElement("div");
+  div.className = "case";
+
+  const label = c.status === "answered"
+    ? '<span class="q-label done">✓ 回答済み</span>'
+    : '<span class="q-label">要対応</span>';
+
+  let html = `${label}<div class="q-text">${escapeHtml(c.question)}</div>
+    <div class="reason">💡 AIの判断: ${escapeHtml(c.reason)}</div>`;
+
+  if (c.status === "answered") {
+    html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>
+      <div class="answered-note">質問者に回答を送信しました。</div>`;
+    div.innerHTML = html;
+    return div;
+  }
+
+  // 選択肢
+  html += `<div style="font-size:12px;color:#555;margin-bottom:6px;">回答の方針を選択してください:</div>`;
+  c.options.forEach((opt, i) => {
+    const sel = c.selectedOption === i ? " selected" : "";
+    const checked = c.selectedOption === i ? "checked" : "";
+    html += `<label class="opt${sel}" data-case="${c.id}" data-opt="${i}">
+      <input type="radio" name="opt-${c.id}" ${checked}>
+      <span>${escapeHtml(opt)}</span>
+    </label>`;
+  });
+
+  html += `<div class="actions">
+    <button class="btn primary" data-action="draft" data-case="${c.id}" ${c.selectedOption === null ? "disabled" : ""}>回答文(案)を作成</button>
+  </div>`;
+
+  if (c.status === "drafted" && c.draft !== null) {
+    html += `<div style="font-size:12px;color:#555;margin-top:12px;">回答文(案) — 編集できます:</div>
+      <textarea class="draft" data-case="${c.id}">${escapeHtml(c.draft)}</textarea>
+      <div class="actions">
+        <button class="btn secondary" data-action="redraft" data-case="${c.id}">作り直す</button>
+        <button class="btn primary" data-action="approve" data-case="${c.id}">OK — 質問者に送信</button>
+      </div>`;
+  }
+
+  div.innerHTML = html;
+  return div;
+}
+
+expertList.addEventListener("click", async e => {
+  const optEl = e.target.closest(".opt");
+  if (optEl) {
+    const c = state.cases.find(x => x.id === optEl.dataset.case);
+    if (c && c.status !== "answered") {
+      c.selectedOption = Number(optEl.dataset.opt);
+      saveState();
+      renderExpert();
+    }
+    return;
+  }
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const c = state.cases.find(x => x.id === btn.dataset.case);
+  if (!c) return;
+
+  if (btn.dataset.action === "draft" || btn.dataset.action === "redraft") {
+    if (c.selectedOption === null) return;
+    btn.disabled = true;
+    btn.textContent = "作成中...";
+    try {
+      const draft = await callClaude({
+        system: DRAFT_SYSTEM,
+        messages: [{
+          role: "user",
+          content: `質問者からの質問:\n${c.question}\n\nAIがエスカレーションした理由:\n${c.reason}\n\n専門家が選択した回答方針:\n${c.options[c.selectedOption]}\n\nこの方針に沿った回答文(案)を作成してください。`
+        }]
+      });
+      c.draft = draft.trim();
+      c.status = "drafted";
+      saveState();
+      renderExpert();
+    } catch (err) {
+      alert("回答案の作成に失敗しました: " + err.message);
+      renderExpert();
+    }
+    return;
+  }
+
+  if (btn.dataset.action === "approve") {
+    const ta = expertList.querySelector(`textarea.draft[data-case="${c.id}"]`);
+    const finalText = (ta ? ta.value : c.draft || "").trim();
+    if (!finalText) { alert("回答文が空です。"); return; }
+    c.answer = finalText;
+    c.status = "answered";
+    c.answeredAt = nowIso();
+    addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() });
+    state.qaLog.push({
+      question: c.question,
+      answered_by: "専門家",
+      selected_option: c.options[c.selectedOption],
+      answer: finalText,
+      asked_at: c.askedAt,
+      answered_at: c.answeredAt
+    });
+    saveState();
+    renderExpert();
+    updateBadges();
+  }
+});
+
+// textarea編集をstateに反映
+expertList.addEventListener("input", e => {
+  if (e.target.matches("textarea.draft")) {
+    const c = state.cases.find(x => x.id === e.target.dataset.case);
+    if (c) { c.draft = e.target.value; saveState(); }
+  }
+});
+
+/* ================= バッジ・タブ ================= */
+const badgeExpert = document.getElementById("badgeExpert");
+function updateBadges() {
+  const pending = state.cases.filter(c => c.status !== "answered").length;
+  badgeExpert.textContent = pending;
+  badgeExpert.classList.toggle("show", pending > 0);
+}
+
+document.querySelectorAll("#tabs .tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll("#tabs .tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+  });
+});
+
+/* ================= 設定 ================= */
+const modalSettings = document.getElementById("modalSettings");
+const apiKeyInput = document.getElementById("apiKeyInput");
+function openSettings() {
+  apiKeyInput.value = state.apiKey || "";
+  modalSettings.classList.add("show");
+}
+document.getElementById("btnSettings").addEventListener("click", openSettings);
+document.getElementById("btnSaveKey").addEventListener("click", () => {
+  state.apiKey = apiKeyInput.value.trim();
+  saveState();
+  modalSettings.classList.remove("show");
+});
+document.getElementById("btnClearData").addEventListener("click", () => {
+  if (confirm("チャット履歴・Q&A履歴・APIキーをすべて削除します。よろしいですか?")) {
+    localStorage.removeItem(LS_KEY);
+    location.reload();
+  }
+});
+modalSettings.addEventListener("click", e => { if (e.target === modalSettings) modalSettings.classList.remove("show"); });
+
+/* ================= ダウンロード ================= */
+const modalDownload = document.getElementById("modalDownload");
+document.getElementById("btnDownload").addEventListener("click", () => {
+  document.getElementById("dlCount").textContent = `保存されているQ&A: ${state.qaLog.length}件`;
+  modalDownload.classList.add("show");
+});
+document.getElementById("btnDlClose").addEventListener("click", () => modalDownload.classList.remove("show"));
+modalDownload.addEventListener("click", e => { if (e.target === modalDownload) modalDownload.classList.remove("show"); });
+
+function downloadFile(name, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function stamp() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+document.getElementById("btnDlJson").addEventListener("click", () => {
+  downloadFile(`qa-history-${stamp()}.json`, JSON.stringify(state.qaLog, null, 2), "application/json");
+});
+document.getElementById("btnDlCsv").addEventListener("click", () => {
+  const esc = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const rows = [["質問日時", "質問", "回答者", "選択された方針", "回答", "回答日時"].map(esc).join(",")];
+  for (const q of state.qaLog) {
+    rows.push([q.asked_at, q.question, q.answered_by, q.selected_option || "", q.answer, q.answered_at].map(esc).join(","));
+  }
+  // Excel で文字化けしないよう BOM 付き UTF-8
+  downloadFile(`qa-history-${stamp()}.csv`, "﻿" + rows.join("\r\n"), "text/csv;charset=utf-8");
+});
+
+/* ================= 初期化 ================= */
+renderChat();
+renderExpert();
+updateBadges();
+if (!state.apiKey) openSettings();
+</script>
+</body>
+</html>
