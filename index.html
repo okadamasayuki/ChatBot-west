@@ -345,6 +345,20 @@
     outline: none;
   }
   .case textarea.draft:focus { border-color: #06c755; }
+  .case textarea.custom-dir {
+    width: 100%;
+    border: 1.5px solid #d4d9e2;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 13px;
+    font-family: inherit;
+    line-height: 1.6;
+    min-height: 70px;
+    outline: none;
+  }
+  .case textarea.custom-dir:focus { border-color: #06c755; }
+  .mic-btn { background: #eef1f6; color: #333; }
+  .mic-btn.recording { background: #ff3b30; color: #fff; }
   .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
   .empty-note { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 0; }
 
@@ -1404,8 +1418,15 @@ function renderCase(c) {
     </label>`;
   });
 
+  // 音声/自由入力で回答方針を指定
+  html += `<div style="font-size:12px;color:#555;margin:10px 0 6px;">または、回答方針を自由に入力(音声入力できます):</div>
+    <textarea class="custom-dir" data-case="${c.id}" placeholder="例: 消耗品費で処理してよいと案内。ただし〜の点は注意、と伝える"></textarea>
+    <div class="actions">
+      <button class="btn mic-btn" data-mic="${c.id}" type="button">🎤 音声入力</button>
+    </div>`;
+
   html += `<div class="actions">
-    <button class="btn primary" data-action="draft" data-case="${c.id}" ${c.selectedOption === null ? "disabled" : ""}>回答文(案)を作成</button>
+    <button class="btn primary" data-action="draft" data-case="${c.id}">回答文(案)を作成</button>
   </div>`;
 
   if (c.status === "drafted" && c.draft !== null) {
@@ -1421,6 +1442,41 @@ function renderCase(c) {
   return div;
 }
 
+let activeRec = null; // 音声認識の実行中インスタンス
+
+// 音声入力(Web Speech API)で回答方針を書き起こす
+function toggleVoice(caseId, btn) {
+  if (activeRec) { try { activeRec.stop(); } catch (e) {} activeRec = null; return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert("この端末/ブラウザは音声入力に対応していません(Chrome や Safari をお試しください)。"); return; }
+  const ta = expertList.querySelector(`textarea.custom-dir[data-case="${caseId}"]`);
+  if (!ta) return;
+  const rec = new SR();
+  rec.lang = "ja-JP";
+  rec.interimResults = true;
+  rec.continuous = true;
+  const base = ta.value ? ta.value + " " : "";
+  let finalText = "";
+  rec.onresult = ev => {
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript;
+      if (ev.results[i].isFinal) finalText += t; else interim += t;
+    }
+    ta.value = base + finalText + interim;
+  };
+  rec.onerror = () => { btn.classList.remove("recording"); btn.textContent = "🎤 音声入力"; activeRec = null; };
+  rec.onend = () => { btn.classList.remove("recording"); btn.textContent = "🎤 音声入力"; activeRec = null; };
+  activeRec = rec;
+  expertEditing = caseId; // 録音中は再描画で消さない
+  btn.classList.add("recording");
+  btn.textContent = "● 停止";
+  const clear = () => { expertEditing = null; };
+  rec.addEventListener("end", clear);
+  rec.addEventListener("error", clear);
+  try { rec.start(); } catch (e) { activeRec = null; expertEditing = null; btn.classList.remove("recording"); btn.textContent = "🎤 音声入力"; }
+}
+
 expertList.addEventListener("click", async e => {
   const optEl = e.target.closest(".opt");
   if (optEl) {
@@ -1430,13 +1486,20 @@ expertList.addEventListener("click", async e => {
     }
     return;
   }
+  const mic = e.target.closest(".mic-btn");
+  if (mic) { toggleVoice(mic.dataset.mic, mic); return; }
   const btn = e.target.closest("button[data-action]");
   if (!btn) return;
   const c = state.cases.find(x => x.id === btn.dataset.case);
   if (!c) return;
 
   if (btn.dataset.action === "draft" || btn.dataset.action === "redraft") {
-    if (c.selectedOption === null) return;
+    // 回答方針: 音声/自由入力があればそれを優先、なければ選択した選択肢
+    const dirEl = expertList.querySelector(`textarea.custom-dir[data-case="${c.id}"]`);
+    const custom = dirEl ? dirEl.value.trim() : "";
+    const direction = custom || (c.selectedOption !== null ? c.options[c.selectedOption] : "");
+    if (!direction) { alert("回答方針を選択するか、音声/テキストで入力してください。"); return; }
+    if (activeRec) { try { activeRec.stop(); } catch (e) {} activeRec = null; }
     btn.disabled = true;
     btn.textContent = "作成中...";
     try {
@@ -1444,7 +1507,7 @@ expertList.addEventListener("click", async e => {
         system: withNaiki(DRAFT_SYSTEM),
         messages: [{
           role: "user",
-          content: `質問者からの質問:\n${c.question}\n\nAIがエスカレーションした理由:\n${c.reason}\n\n専門家が選択した回答方針:\n${c.options[c.selectedOption]}\n\nこの方針に沿った回答文(案)を作成してください。`
+          content: `質問者からの質問:\n${c.question}\n\nAIがエスカレーションした理由:\n${c.reason}\n\n専門家が指定した回答方針:\n${direction}\n\nこの方針に沿った回答文(案)を作成してください。`
         }]
       });
       updateCase(c, { draft: draft.trim(), status: "drafted" });
@@ -1464,7 +1527,7 @@ expertList.addEventListener("click", async e => {
     addQa({
       question: c.question,
       answered_by: "専門家",
-      selected_option: c.options[c.selectedOption],
+      selected_option: (c.selectedOption !== null && c.selectedOption !== undefined) ? c.options[c.selectedOption] : "(自由/音声入力)",
       answer: finalText,
       asked_at: c.askedAt,
       answered_at: nowIso()
@@ -1473,9 +1536,9 @@ expertList.addEventListener("click", async e => {
   }
 });
 
-// 回答文案の編集: 入力中はローカルのみ更新、フォーカスが外れたらクラウドへ保存
+// 編集中(回答案 / 自由入力)はスナップショット再描画で消さない
 expertList.addEventListener("focusin", e => {
-  if (e.target.matches("textarea.draft")) expertEditing = e.target.dataset.case;
+  if (e.target.matches("textarea.draft, textarea.custom-dir")) expertEditing = e.target.dataset.case;
 });
 expertList.addEventListener("input", e => {
   if (e.target.matches("textarea.draft")) {
@@ -1491,7 +1554,9 @@ expertList.addEventListener("focusout", e => {
       if (cloud.on) cloud.fs.updateDoc(cloudDoc("cases", c.id), { draft: c.draft }).catch(err => console.error(err));
       else saveState();
     }
-    expertEditing = null;
+  }
+  if (e.target.matches("textarea.draft, textarea.custom-dir")) {
+    if (!activeRec) expertEditing = null; // 録音中は解除しない
   }
 });
 
@@ -1698,65 +1763,79 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 /* ================= サンプルデータ(デモ用) ================= */
 function exampleData() {
   const ESC = "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。";
+  const ts = (n) => `2026-07-10T${String(n).padStart(2, "0")}:00:00.000Z`;
+  let hour = 0;
+
+  const ai = (id, title, q, a) => {
+    const t = ts(hour++), t2 = ts(hour++);
+    return {
+      room: { id, title, createdAt: t, lastText: "", lastTs: t2 },
+      msgs: [{ id: id + "u", role: "user", text: q, ts: t }, { id: id + "a", role: "ai", text: a, ts: t2 }],
+      qa: { question: q, answered_by: "AI", answer: a, asked_at: t, answered_at: t2 }
+    };
+  };
+  const escP = (id, title, q, reason, options) => {
+    const t = ts(hour++), t2 = ts(hour++);
+    return {
+      room: { id, title, createdAt: t, lastText: "", lastTs: t2 },
+      msgs: [{ id: id + "u", role: "user", text: q, ts: t }, { id: id + "a", role: "ai", text: ESC, ts: t2 }],
+      caseObj: { id: "c" + id, roomId: id, question: q, reason, options, selectedOption: null, draft: null, status: "pending", askedAt: t }
+    };
+  };
+  const escA = (id, title, q, reason, options, sel, answer) => {
+    const t = ts(hour++), t2 = ts(hour++), t3 = ts(hour++);
+    return {
+      room: { id, title, createdAt: t, lastText: "", lastTs: t3 },
+      msgs: [{ id: id + "u", role: "user", text: q, ts: t }, { id: id + "a", role: "ai", text: ESC, ts: t2 }, { id: id + "e", role: "expert", text: answer, ts: t3 }],
+      caseObj: { id: "c" + id, roomId: id, question: q, reason, options, selectedOption: sel, draft: null, status: "answered", answer, askedAt: t, answeredAt: t3 },
+      qa: { question: title, answered_by: "専門家", selected_option: options[sel], answer, asked_at: t, answered_at: t3 }
+    };
+  };
+
   return [
-    {
-      room: { id: "ex1", title: "減価償却はどの方法で計算すればいい?", createdAt: "2026-07-08T01:00:00.000Z", lastText: "", lastTs: "2026-07-08T01:01:00.000Z", ownerEmail: "tanaka@example.com" },
-      msgs: [
-        { id: "ex1m1", role: "user", text: "減価償却はどの方法で計算すればいいですか?", ts: "2026-07-08T01:00:00.000Z" },
-        { id: "ex1m2", role: "ai", text: "当事務所の内規では、減価償却は定額法で計算します。取得価額を耐用年数にわたって毎期均等に費用計上してください。例えば取得価額120万円・耐用年数6年なら、毎年20万円ずつ償却します。", ts: "2026-07-08T01:01:00.000Z" }
-      ],
-      qa: { question: "減価償却はどの方法で計算すればいいですか?", answered_by: "AI", answer: "当事務所の内規では定額法で計算します。取得価額を耐用年数で毎期均等に費用計上します。", asked_at: "2026-07-08T01:00:00.000Z", answered_at: "2026-07-08T01:01:00.000Z" }
-    },
-    {
-      room: { id: "ex2", title: "3万円のプリンターの勘定科目は?", createdAt: "2026-07-08T04:00:00.000Z", lastText: "", lastTs: "2026-07-08T04:01:00.000Z", ownerEmail: "tanaka@example.com" },
-      msgs: [
-        { id: "ex2m1", role: "user", text: "3万円のプリンターを買いました。勘定科目は何になりますか?", ts: "2026-07-08T04:00:00.000Z" },
-        { id: "ex2m2", role: "ai", text: "取得価額が10万円未満の物品は「消耗品費」として購入時に一括で費用計上できます。3万円のプリンターは消耗品費で処理して問題ありません(資産計上・減価償却は不要です)。", ts: "2026-07-08T04:01:00.000Z" }
-      ],
-      qa: { question: "3万円のプリンターの勘定科目は?", answered_by: "AI", answer: "10万円未満のため消耗品費で一括計上できます。", asked_at: "2026-07-08T04:00:00.000Z", answered_at: "2026-07-08T04:01:00.000Z" }
-    },
-    {
-      room: { id: "ex3", title: "飲食代は交際費?会議費?", createdAt: "2026-07-09T02:00:00.000Z", lastText: "", lastTs: "2026-07-09T02:01:00.000Z", ownerEmail: "suzuki@example.com" },
-      msgs: [
-        { id: "ex3m1", role: "user", text: "取引先との飲食代は交際費ですか?会議費ですか?", ts: "2026-07-09T02:00:00.000Z" },
-        { id: "ex3m2", role: "ai", text: "1人あたり5,000円以下で、日付・参加者・目的などの要件を満たす飲食は「会議費」として処理できます。これを超える接待目的の飲食は「交際費」になります。領収書に参加人数・氏名を残しておきましょう。", ts: "2026-07-09T02:01:00.000Z" }
-      ],
-      qa: { question: "飲食代は交際費?会議費?", answered_by: "AI", answer: "1人5,000円以下の要件を満たせば会議費、超えると交際費です。", asked_at: "2026-07-09T02:00:00.000Z", answered_at: "2026-07-09T02:01:00.000Z" }
-    },
-    {
-      room: { id: "ex4", title: "役員報酬を期中に増額できる?", createdAt: "2026-07-09T05:00:00.000Z", lastText: "", lastTs: "2026-07-09T05:10:00.000Z", ownerEmail: "suzuki@example.com" },
-      msgs: [
-        { id: "ex4m1", role: "user", text: "役員報酬を今期の途中から増額したいのですが、損金算入できますか?", ts: "2026-07-09T05:00:00.000Z" },
-        { id: "ex4m2", role: "ai", text: ESC, ts: "2026-07-09T05:01:00.000Z" },
-        { id: "ex4m3", role: "expert", text: "役員報酬は原則として期首から3か月以内の改定(定期同額給与)でないと、増額した部分が損金不算入となる可能性があります。期中の増額は、業績悪化改定事由などの例外に該当するかどうか個別の確認が必要です。増額をご検討の場合は、事前に担当税理士へご相談ください。", ts: "2026-07-09T05:10:00.000Z" }
-      ],
-      caseObj: {
-        id: "exc4", roomId: "ex4", question: "役員報酬を今期の途中から増額したいのですが、損金算入できますか?",
-        reason: "役員報酬の期中改定は損金算入の可否が個別事情で変わり、税務上の専門判断が必要なため。",
-        options: ["原則は期中増額分が損金不算入になると案内する", "業績悪化改定など例外に該当するか個別確認が必要と案内する"],
-        selectedOption: 1, draft: null, status: "answered",
-        answer: "役員報酬は原則として期首から3か月以内の改定(定期同額給与)でないと、増額した部分が損金不算入となる可能性があります。期中の増額は、業績悪化改定事由などの例外に該当するかどうか個別の確認が必要です。増額をご検討の場合は、事前に担当税理士へご相談ください。",
-        askedAt: "2026-07-09T05:00:00.000Z", answeredAt: "2026-07-09T05:10:00.000Z"
-      },
-      qa: { question: "役員報酬を今期の途中から増額できる?", answered_by: "専門家", selected_option: "業績悪化改定など例外に該当するか個別確認が必要と案内する", answer: "原則は損金不算入の可能性。期中増額は例外該当の個別確認が必要。担当税理士に相談を。", asked_at: "2026-07-09T05:00:00.000Z", answered_at: "2026-07-09T05:10:00.000Z" }
-    },
-    {
-      room: { id: "ex5", title: "500万円の機械を全額経費にできる?", createdAt: "2026-07-10T00:30:00.000Z", lastText: "", lastTs: "2026-07-10T00:31:00.000Z", ownerEmail: "sato@example.com" },
-      msgs: [
-        { id: "ex5m1", role: "user", text: "500万円の機械を導入予定です。全額その年の経費にできますか?", ts: "2026-07-10T00:30:00.000Z" },
-        { id: "ex5m2", role: "ai", text: ESC, ts: "2026-07-10T00:31:00.000Z" }
-      ],
-      caseObj: {
-        id: "exc5", roomId: "ex5", question: "500万円の機械を導入予定です。全額その年の経費にできますか?",
-        reason: "高額な資産の取得で、原則は資産計上・減価償却だが、特別償却や中小企業向け特例の適用可否は個別判断が必要なため。",
-        options: ["原則どおり資産計上し定額法で減価償却すると案内する", "中小企業経営強化税制など特例で即時償却できる可能性を案内する", "適用要件の確認が必要なため追加情報を依頼する"],
-        selectedOption: null, draft: null, status: "pending",
-        askedAt: "2026-07-10T00:30:00.000Z"
-      }
-    }
+    ai("ex1", "減価償却はどの方法で計算すればいい?", "減価償却はどの方法で計算すればいいですか?", "当事務所の内規では、減価償却は定額法で計算します。取得価額を耐用年数にわたって毎期均等に費用計上してください(例: 120万円・6年なら毎年20万円)。"),
+    ai("ex2", "3万円のプリンターの勘定科目は?", "3万円のプリンターを買いました。勘定科目は何になりますか?", "取得価額が10万円未満の物品は「消耗品費」として購入時に一括で費用計上できます。資産計上・減価償却は不要です。"),
+    ai("ex3", "飲食代は交際費?会議費?", "取引先との飲食代は交際費ですか?会議費ですか?", "1人あたり5,000円以下で日付・参加者・目的の要件を満たす飲食は「会議費」、それを超える接待目的の飲食は「交際費」になります。"),
+    ai("ex11", "領収書のない交通費の精算は?", "領収書が出ない電車代はどう精算すればいいですか?", "電車・バスなど領収書が出ない交通費は、日付・区間・金額・目的を記した出金伝票や交通費精算書で精算できます。ICカードの利用履歴を添付すると確実です。"),
+    ai("ex12", "前受金はいつ売上に計上する?", "来月分のサービス料を前もって受け取りました。売上はいつ計上しますか?", "代金を先に受け取った時点では「前受金(負債)」で処理し、サービスを提供した月に売上へ振り替えます。実現主義に基づく処理です。"),
+
+    escP("ex5", "500万円の機械を全額経費にできる?", "500万円の機械を導入予定です。全額その年の経費にできますか?",
+      "高額資産の取得で、原則は資産計上・減価償却だが、特別償却や中小企業向け特例の適用可否は個別判断が必要なため。",
+      ["原則どおり資産計上し定額法で減価償却すると案内する", "中小企業経営強化税制など特例で即時償却できる可能性を案内する", "適用要件の確認が必要なため追加情報を依頼する"]),
+    escP("ex6", "貸倒引当金は計上できる?", "取引先が倒産しそうです。売掛金に貸倒引当金を計上できますか?",
+      "貸倒引当金・貸倒損失は相手先の状況(法的整理・実質破綻など)で処理と時期が変わり、個別判断が必要なため。",
+      ["個別評価が必要なため状況を確認して案内する", "法的整理の有無で処理が変わると案内する"]),
+    escP("ex7", "簡易課税と原則課税どちらが得?", "消費税は簡易課税と原則課税のどちらが有利ですか?",
+      "有利判定は売上・経費構成やみなし仕入率、設備投資予定で変わり、シミュレーションが必要なため。",
+      ["業種のみなし仕入率で試算して案内する", "設備投資予定の有無を確認して案内する", "両方式を試算のうえ提案する"]),
+    escP("ex9", "従業員への慶弔見舞金は損金?", "従業員に結婚祝い金を渡しました。損金になりますか?",
+      "慶弔見舞金は社会通念上相当な金額かどうか、慶弔規程の有無で損金性が変わるため。",
+      ["慶弔規程に基づく相当額なら損金と案内する", "規程の整備状況を確認して案内する"]),
+    escP("ex10", "海外送金の為替差損益の処理は?", "ドル建ての売掛金を回収しました。為替差損益はどう処理しますか?",
+      "換算レート(取引時・決算時・回収時)の適用や継続適用の要件で処理が変わり、個別確認が必要なため。",
+      ["取引時と回収時のレート差を為替差損益で処理と案内する", "期末の換算方法(継続適用)を確認して案内する"]),
+    escP("ex14", "社宅家賃はどこまで給与課税される?", "会社で社宅を借りて社員に貸します。家賃はどこまで給与課税されますか?",
+      "賃貸料相当額の計算(固定資産税評価額ベース)や本人負担割合で課税範囲が変わるため。",
+      ["賃貸料相当額の50%以上を本人負担にすれば非課税と案内する", "評価額の確認が必要なため資料を依頼する"]),
+
+    escA("ex4", "役員報酬を期中に増額できる?", "役員報酬を今期の途中から増額したいのですが、損金算入できますか?",
+      "役員報酬の期中改定は損金算入の可否が個別事情で変わり、税務上の専門判断が必要なため。",
+      ["原則は期中増額分が損金不算入になると案内する", "業績悪化改定など例外に該当するか個別確認が必要と案内する"], 1,
+      "役員報酬は原則として期首から3か月以内の改定(定期同額給与)でないと、増額分が損金不算入となる可能性があります。期中増額は業績悪化改定などの例外に該当するか個別確認が必要ですので、事前に担当税理士へご相談ください。"),
+    escA("ex8", "固定資産の除却損はいつ計上する?", "古い設備を廃棄しました。除却損はいつ計上できますか?",
+      "除却の事実認定(実際の廃棄・使用停止)や有姿除却の要件で計上時期が変わるため。",
+      ["実際に廃棄した事業年度に計上と案内する", "有姿除却の要件を満たすか確認して案内する"], 0,
+      "固定資産の除却損は、実際に廃棄・処分した事業年度に計上します。廃棄業者の処分証明や写真など、除却の事実を示す資料を保管してください。まだ廃棄していない場合は有姿除却の要件確認が必要です。"),
+    escA("ex13", "中古車の耐用年数は?", "4年落ちの中古車を購入しました。耐用年数は何年になりますか?",
+      "中古資産の耐用年数は簡便法・見積法の選択や経過年数で変わり、個別計算が必要なため。",
+      ["簡便法で計算した年数(最短2年)を案内する", "見積法との比較が必要と案内する"], 0,
+      "中古車は簡便法により「(法定耐用年数6年−経過4年)+経過4年×20%＝2.8年→2年」となります(1年未満切捨て・最短2年)。事業供用日基準で計算しますので、取得時期もあわせてご確認ください。"),
+    escA("ex15", "決算賞与を損金にする要件は?", "決算月に賞与を支給予定です。今期の損金にするには?",
+      "未払計上での損金算入は支給額の通知・支給時期・経理処理の3要件を満たす必要があり、確認が必要なため。",
+      ["3要件(通知・1か月以内支給・未払計上)を満たせば損金と案内する", "支給通知の方法を確認して案内する"], 0,
+      "決算賞与を未払計上で今期の損金にするには、①各人別に支給額を通知し、②決算日の翌日から1か月以内に全員へ支給し、③通知した期に未払費用として損金経理する、の3要件をすべて満たす必要があります。通知書の保管をお願いします。")
   ];
 }
-
 // 既存にないサンプルだけを追加(重複しない)。追加件数を返す。
 function loadExamples() {
   let added = 0;
