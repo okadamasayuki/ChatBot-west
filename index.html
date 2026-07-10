@@ -1573,8 +1573,10 @@ function backToRooms() {
   renderChat();
 }
 
-// 専門家タブから開いた相談は、ページを右にスワイプすると専門家タブへ戻る
-(function setupExpertBackSwipe() {
+// チャット(相談)表示中のページ全体スワイプ:
+//   左スワイプ → 相談一覧へ戻る
+//   右スワイプ → BAタブの該当質問(案件)へ移動(財務のみ。案件がなければBAタブへ)
+(function setupChatSwipe() {
   const panel = document.getElementById("panel-chat");
   if (!panel) return;
   let sx = 0, sy = 0, tracking = false;
@@ -1585,12 +1587,23 @@ function backToRooms() {
   panel.addEventListener("touchend", e => {
     if (!tracking) return;
     tracking = false;
-    if (roomOrigin !== "expert" || !currentRoomId) return;
+    if (!currentRoomId) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - sx, dy = t.clientY - sy;
-    if (dx > 70 && Math.abs(dx) > Math.abs(dy) * 2) { // 右方向へ十分な横スワイプ
+    if (Math.abs(dx) < 70 || Math.abs(dx) <= Math.abs(dy) * 2) return; // 横方向の十分なスワイプのみ
+    if (dx < 0) {
+      // 左スワイプ: 相談一覧へ
       backToRooms();
-      activateTab("expert");
+      return;
+    }
+    // 右スワイプ: BAの該当質問へ(財務のみ)
+    if (cloud.on && cloud.role === "expert") {
+      const roomId = currentRoomId;
+      if (state.cases.some(c => c.roomId === roomId) && !isDoneRoomId(roomId)) {
+        jumpToCase(roomId);
+      } else {
+        activateTab("expert");
+      }
     }
   }, { passive: true });
 })();
