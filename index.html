@@ -761,6 +761,7 @@ function applyRole() {
   if (mineBtn) mineBtn.style.display = isExpert ? "none" : "";
   if (isExpert) roomFilter = "all";
   updateFilterButtons();
+  updateRoomBar();
 }
 
 async function initCloud() {
@@ -1070,13 +1071,21 @@ function updateRoomBar() {
   const title = document.getElementById("roomTitle");
   const nw = document.getElementById("btnNewRoom");
   const filters = document.getElementById("roomFilters");
+  const isExpert = cloud.on && cloud.role === "expert";
   if (!currentRoomId) {
     back.style.display = "none";
     // 財務(専門家)は相談を作成しないため「＋新規」を非表示
-    nw.style.display = (cloud.on && cloud.role === "expert") ? "none" : "inline-block";
-    title.style.display = "none";
-    filters.style.display = "flex";
-    updateFilterButtons();
+    nw.style.display = isExpert ? "none" : "inline-block";
+    // 財務は常に「全員の相談」のみのため、フィルタ切替は不要(タイトルを表示)
+    if (isExpert) {
+      filters.style.display = "none";
+      title.style.display = "block";
+      title.textContent = "相談一覧";
+    } else {
+      title.style.display = "none";
+      filters.style.display = "flex";
+      updateFilterButtons();
+    }
   } else {
     back.style.display = "inline-block";
     nw.style.display = "none";
