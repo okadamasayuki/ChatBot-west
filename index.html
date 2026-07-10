@@ -306,7 +306,7 @@
 <body>
 <div id="app">
   <header>
-    <div class="title">💬 会計相談チャット</div>
+    <div class="title">💬 会計相談チャット<span id="cloudStatus" style="font-size:11px;font-weight:400;margin-left:8px;color:#9fb0c8;">ローカルのみ</span></div>
     <button id="btnDownload" title="Q&A履歴をダウンロード">⬇ 履歴</button>
     <button id="btnSettings" title="設定">⚙</button>
   </header>
@@ -337,8 +337,17 @@
       <div class="warn">⚠ このアプリはブラウザから直接 Claude API を呼び出します。API キーはこの端末の localStorage にのみ保存されますが、共有端末では使用しないでください。</div>
       <p>Anthropic API キー(<code>sk-ant-...</code>)を入力してください。</p>
       <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...">
-      <p style="margin-top:4px;">内規(社内ルール) — この端末にのみ保存され、Webには公開されません。回答時にAIが参照します。</p>
+      <p style="margin-top:4px;">内規(社内ルール) — 回答時にAIが参照します。共有ONの場合はチーム全員に反映されます。</p>
       <textarea id="naikiInput" placeholder="## 会計処理ルール&#10;&#10;- 減価償却は定額法とする。"></textarea>
+
+      <hr style="border:none;border-top:1px solid #e5e8ee;margin:14px 0;">
+      <h2 style="font-size:14px;">☁ チーム共有(任意)</h2>
+      <p>Firebase を使うと、内規と質問⇄回答を<b>複数の担当者・端末で共有</b>できます。設定するには下の2つを入力してください(未設定ならこの端末のみで動作)。現在の状態: <span id="cloudStatusModal" style="font-weight:600;">ローカルのみ</span></p>
+      <p style="margin-bottom:4px;">① Firebase 設定(コンソールの firebaseConfig の <code>{ ... }</code> を貼り付け)</p>
+      <textarea id="firebaseInput" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
+      <p style="margin-bottom:4px;">② ワークスペース合言葉(チームで同じ文字列を共有。これを知る人だけが同じデータにアクセスできます)</p>
+      <input type="password" id="workspaceInput" placeholder="例: nishi-kaikei-2026-8f3a">
+      <div class="warn">共有ONの場合、内規と質問⇄回答は Firebase(クラウド)に保存されます。合言葉は共有パスワードとして厳重に管理してください。セットアップ手順は README を参照。</div>
       <div class="row">
         <button class="btn secondary" id="btnClearData">全データ削除</button>
         <button class="btn primary" id="btnSaveKey">保存</button>
@@ -368,11 +377,15 @@ const LS_KEY = "kaikei-chat-state-v1";
 const state = loadState();
 
 function loadState() {
-  try {
-    const s = JSON.parse(localStorage.getItem(LS_KEY));
-    if (s && Array.isArray(s.messages) && Array.isArray(s.cases)) return s;
-  } catch (e) {}
-  return { apiKey: "", messages: [], cases: [], qaLog: [] };
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(LS_KEY)); } catch (e) {}
+  if (!s || !Array.isArray(s.messages) || !Array.isArray(s.cases)) {
+    s = { apiKey: "", messages: [], cases: [], qaLog: [] };
+  }
+  // クラウド共有用の設定(この端末にのみ保存)
+  if (typeof s.firebaseConfig !== "string") s.firebaseConfig = "";
+  if (typeof s.workspaceCode !== "string") s.workspaceCode = "";
+  return s;
 }
 function saveState() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -454,6 +467,127 @@ function withNaiki(base) {
     "\n----- 内規ここまで -----";
 }
 
+/* ================= クラウド共有 (Firebase Firestore) =================
+   Firebase設定(JSON)とワークスペース合言葉の両方が設定されている場合のみ、
+   内規・チャット・エスカレーション案件をクラウドで共有する。
+   合言葉のSHA-256をワークスペースIDにするため、合言葉を知る担当者だけが
+   同じデータにアクセスできる(合言葉は共有パスワードとして扱うこと)。 */
+const cloud = { on: false, fs: null, db: null, wid: null, unsub: [] };
+
+async function sha256hex(s) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function setCloudStatus(txt, ok) {
+  const el = document.getElementById("cloudStatus");
+  if (el) { el.textContent = txt; el.style.color = ok ? "#8de055" : "#9fb0c8"; }
+  const m = document.getElementById("cloudStatusModal");
+  if (m) { m.textContent = txt; m.style.color = ok ? "#06a04a" : "#666"; }
+}
+
+async function initCloud() {
+  // 既存リスナーを解除
+  cloud.unsub.forEach(u => { try { u(); } catch (e) {} });
+  cloud.unsub = [];
+  cloud.on = false;
+
+  const cfgStr = (state.firebaseConfig || "").trim();
+  const code = (state.workspaceCode || "").trim();
+  if (!cfgStr || !code) { setCloudStatus("ローカルのみ", false); return; }
+
+  let cfg;
+  try { cfg = JSON.parse(cfgStr); } catch (e) { setCloudStatus("Firebase設定のJSONが不正", false); return; }
+
+  setCloudStatus("接続中…", false);
+  try {
+    const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const fsMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const app = appMod.initializeApp(cfg);
+    cloud.fs = fsMod;
+    cloud.db = fsMod.getFirestore(app);
+    cloud.wid = await sha256hex(code);
+    subscribeCloud();
+    cloud.on = true;
+    setCloudStatus("☁ 共有中", true);
+  } catch (e) {
+    console.error(e);
+    setCloudStatus("接続失敗", false);
+    addMessage({ id: uid(), role: "system", text: "⚠ クラウド接続に失敗しました: " + (e.message || e), ts: nowIso() });
+  }
+}
+
+function subscribeCloud() {
+  const { doc, collection, onSnapshot, query, orderBy, setDoc } = cloud.fs;
+  const wsRef = doc(cloud.db, "workspaces", cloud.wid);
+
+  cloud.unsub.push(onSnapshot(wsRef, snap => {
+    if (!snap.exists() || typeof snap.data().naiki !== "string") {
+      // ワークスペース未作成 → 現在の内規で初期化(既存の内規は上書きしない)
+      setDoc(wsRef, { naiki: state.naiki || "" }, { merge: true }).catch(() => {});
+    } else {
+      state.naiki = snap.data().naiki;
+    }
+  }));
+  cloud.unsub.push(onSnapshot(
+    query(collection(cloud.db, "workspaces", cloud.wid, "messages"), orderBy("ts")),
+    snap => { state.messages = snap.docs.map(dd => dd.data()); renderChat(); }
+  ));
+  cloud.unsub.push(onSnapshot(
+    query(collection(cloud.db, "workspaces", cloud.wid, "cases"), orderBy("askedAt")),
+    snap => {
+      state.cases = snap.docs.map(dd => dd.data());
+      if (!expertEditing) { renderExpert(); }
+      updateBadges();
+    }
+  ));
+  cloud.unsub.push(onSnapshot(
+    query(collection(cloud.db, "workspaces", cloud.wid, "qa"), orderBy("answered_at")),
+    snap => { state.qaLog = snap.docs.map(dd => dd.data()); }
+  ));
+}
+
+function cloudDoc(coll, id) { return cloud.fs.doc(cloud.db, "workspaces", cloud.wid, coll, id); }
+
+// 内規をクラウドに保存(共有モード時)
+function saveNaikiShared() {
+  if (cloud.on) {
+    cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid), { naiki: state.naiki || "" }, { merge: true }).catch(e => console.error(e));
+  }
+}
+
+// Q&Aログの追記(ダウンロード用)
+function addQa(entry) {
+  if (cloud.on) {
+    cloud.fs.addDoc(cloud.fs.collection(cloud.db, "workspaces", cloud.wid, "qa"), entry).catch(e => console.error(e));
+  } else {
+    state.qaLog.push(entry);
+    saveState();
+  }
+}
+
+// エスカレーション案件の追加・更新(クラウド共有対応)
+function addCase(c) {
+  if (cloud.on) {
+    cloud.fs.setDoc(cloudDoc("cases", c.id), c).catch(e => console.error(e));
+    return;
+  }
+  state.cases.push(c);
+  saveState();
+  renderExpert();
+  updateBadges();
+}
+function updateCase(c, patch) {
+  Object.assign(c, patch);
+  if (cloud.on) {
+    cloud.fs.updateDoc(cloudDoc("cases", c.id), patch).catch(e => console.error(e));
+  } else {
+    saveState();
+  }
+  renderExpert();
+  updateBadges();
+}
+
 async function callClaude({ system, messages, schema }) {
   if (!state.apiKey) throw new Error("NO_API_KEY");
   const body = {
@@ -498,7 +632,14 @@ const chatLog = document.getElementById("chatLog");
 const qInput = document.getElementById("qInput");
 const btnSend = document.getElementById("btnSend");
 
+let pendingTyping = false;
+
 function addMessage(msg) {
+  if (cloud.on) {
+    // クラウド共有モード: Firestoreに書き込み、snapshotで再描画される
+    cloud.fs.setDoc(cloudDoc("messages", msg.id), msg).catch(e => console.error(e));
+    return;
+  }
   state.messages.push(msg);
   saveState();
   renderChat();
@@ -506,7 +647,7 @@ function addMessage(msg) {
 
 function renderChat() {
   chatLog.innerHTML = "";
-  if (state.messages.length === 0) {
+  if (state.messages.length === 0 && !pendingTyping) {
     chatLog.innerHTML = '<div class="msg system"><div class="bubble">会計に関する質問を入力してください。AIが回答できない場合は会計の専門家におつなぎします。</div></div>';
   }
   const lastIdx = state.messages.length - 1;
@@ -534,6 +675,12 @@ function renderChat() {
     }
     chatLog.appendChild(div);
   });
+  if (pendingTyping) {
+    const t = document.createElement("div");
+    t.className = "msg other";
+    t.innerHTML = '<div class="sender">🤖 AIアシスタント</div><div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
+    chatLog.appendChild(t);
+  }
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
@@ -560,12 +707,9 @@ async function submitQuestion(text) {
   btnSend.disabled = true;
   addMessage({ id: uid(), role: "user", text, ts: nowIso() });
 
-  // typing indicator
-  const typing = document.createElement("div");
-  typing.className = "msg other";
-  typing.innerHTML = '<div class="sender">🤖 AIアシスタント</div><div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
-  chatLog.appendChild(typing);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  // typing indicator (renderChatで描画。クラウド再描画でも消えない)
+  pendingTyping = true;
+  renderChat();
 
   try {
     // 直近の会話履歴(最大10往復分)をコンテキストとして渡す
@@ -582,12 +726,11 @@ async function submitQuestion(text) {
     const raw = await callClaude({ system: withNaiki(TRIAGE_SYSTEM), messages: history, schema: TRIAGE_SCHEMA });
     const result = JSON.parse(raw);
 
-    typing.remove();
+    pendingTyping = false;
 
     if (result.decision === "answer" && result.answer) {
       addMessage({ id: uid(), role: "ai", text: result.answer, ts: nowIso() });
-      state.qaLog.push({ question: text, answered_by: "AI", answer: result.answer, asked_at: nowIso(), answered_at: nowIso() });
-      saveState();
+      addQa({ question: text, answered_by: "AI", answer: result.answer, asked_at: nowIso(), answered_at: nowIso() });
     } else if (result.decision === "clarify" && result.clarify_question) {
       // 情報不足 → 短い質問+選択肢ボタンで聞き返す
       const opts = (result.clarify_options && result.clarify_options.length) ? result.clarify_options : [];
@@ -604,17 +747,15 @@ async function submitQuestion(text) {
         status: "pending", // pending -> drafted -> answered
         askedAt: nowIso()
       };
-      state.cases.push(caseObj);
+      addCase(caseObj);
       addMessage({ id: uid(), role: "ai", text: "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。", ts: nowIso() });
-      saveState();
-      renderExpert();
-      updateBadges();
     }
   } catch (err) {
-    typing.remove();
-    if (err.message === "NO_API_KEY") { openSettings(); }
+    pendingTyping = false;
+    if (err.message === "NO_API_KEY") { renderChat(); openSettings(); }
     else addMessage({ id: uid(), role: "system", text: "⚠ " + err.message, ts: nowIso() });
   } finally {
+    if (!cloud.on) renderChat(); // クラウド時はsnapshotで描画
     sending = false;
     btnSend.disabled = false;
   }
@@ -630,6 +771,7 @@ qInput.addEventListener("keydown", e => {
 
 /* ================= 専門家ビュー ================= */
 const expertList = document.getElementById("expertList");
+let expertEditing = null; // 編集中の案件ID(クラウド再描画で編集中textareaを壊さないため)
 
 function renderExpert() {
   expertList.innerHTML = "";
@@ -694,9 +836,7 @@ expertList.addEventListener("click", async e => {
   if (optEl) {
     const c = state.cases.find(x => x.id === optEl.dataset.case);
     if (c && c.status !== "answered") {
-      c.selectedOption = Number(optEl.dataset.opt);
-      saveState();
-      renderExpert();
+      updateCase(c, { selectedOption: Number(optEl.dataset.opt) });
     }
     return;
   }
@@ -717,10 +857,7 @@ expertList.addEventListener("click", async e => {
           content: `質問者からの質問:\n${c.question}\n\nAIがエスカレーションした理由:\n${c.reason}\n\n専門家が選択した回答方針:\n${c.options[c.selectedOption]}\n\nこの方針に沿った回答文(案)を作成してください。`
         }]
       });
-      c.draft = draft.trim();
-      c.status = "drafted";
-      saveState();
-      renderExpert();
+      updateCase(c, { draft: draft.trim(), status: "drafted" });
     } catch (err) {
       alert("回答案の作成に失敗しました: " + err.message);
       renderExpert();
@@ -732,29 +869,39 @@ expertList.addEventListener("click", async e => {
     const ta = expertList.querySelector(`textarea.draft[data-case="${c.id}"]`);
     const finalText = (ta ? ta.value : c.draft || "").trim();
     if (!finalText) { alert("回答文が空です。"); return; }
-    c.answer = finalText;
-    c.status = "answered";
-    c.answeredAt = nowIso();
+    expertEditing = null;
     addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() });
-    state.qaLog.push({
+    addQa({
       question: c.question,
       answered_by: "専門家",
       selected_option: c.options[c.selectedOption],
       answer: finalText,
       asked_at: c.askedAt,
-      answered_at: c.answeredAt
+      answered_at: nowIso()
     });
-    saveState();
-    renderExpert();
-    updateBadges();
+    updateCase(c, { answer: finalText, status: "answered", answeredAt: nowIso() });
   }
 });
 
-// textarea編集をstateに反映
+// 回答文案の編集: 入力中はローカルのみ更新、フォーカスが外れたらクラウドへ保存
+expertList.addEventListener("focusin", e => {
+  if (e.target.matches("textarea.draft")) expertEditing = e.target.dataset.case;
+});
 expertList.addEventListener("input", e => {
   if (e.target.matches("textarea.draft")) {
     const c = state.cases.find(x => x.id === e.target.dataset.case);
-    if (c) { c.draft = e.target.value; saveState(); }
+    if (c) c.draft = e.target.value; // ローカル反映のみ(書き込みはblur時)
+  }
+});
+expertList.addEventListener("focusout", e => {
+  if (e.target.matches("textarea.draft")) {
+    const c = state.cases.find(x => x.id === e.target.dataset.case);
+    if (c) {
+      c.draft = e.target.value;
+      if (cloud.on) cloud.fs.updateDoc(cloudDoc("cases", c.id), { draft: c.draft }).catch(err => console.error(err));
+      else saveState();
+    }
+    expertEditing = null;
   }
 });
 
@@ -779,20 +926,33 @@ document.querySelectorAll("#tabs .tab").forEach(tab => {
 const modalSettings = document.getElementById("modalSettings");
 const apiKeyInput = document.getElementById("apiKeyInput");
 const naikiInput = document.getElementById("naikiInput");
+const firebaseInput = document.getElementById("firebaseInput");
+const workspaceInput = document.getElementById("workspaceInput");
 function openSettings() {
   apiKeyInput.value = state.apiKey || "";
   naikiInput.value = state.naiki || "";
+  firebaseInput.value = state.firebaseConfig || "";
+  workspaceInput.value = state.workspaceCode || "";
   modalSettings.classList.add("show");
 }
 document.getElementById("btnSettings").addEventListener("click", openSettings);
-document.getElementById("btnSaveKey").addEventListener("click", () => {
+document.getElementById("btnSaveKey").addEventListener("click", async () => {
   state.apiKey = apiKeyInput.value.trim();
   state.naiki = naikiInput.value;
+  const cloudChanged = (state.firebaseConfig !== firebaseInput.value.trim()) ||
+                       (state.workspaceCode !== workspaceInput.value.trim());
+  state.firebaseConfig = firebaseInput.value.trim();
+  state.workspaceCode = workspaceInput.value.trim();
   saveState();
   modalSettings.classList.remove("show");
+  if (cloudChanged) {
+    await initCloud();       // 接続設定が変わったら繋ぎ直す
+  } else {
+    saveNaikiShared();        // 内規のみ変更 → 共有中なら反映
+  }
 });
 document.getElementById("btnClearData").addEventListener("click", () => {
-  if (confirm("チャット履歴・Q&A履歴・APIキーをすべて削除します。よろしいですか?")) {
+  if (confirm("この端末の設定(APIキー・Firebase設定・合言葉)とローカル履歴を削除します。クラウド上の共有データは削除されません。よろしいですか?")) {
     localStorage.removeItem(LS_KEY);
     location.reload();
   }
@@ -837,6 +997,7 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 renderChat();
 renderExpert();
 updateBadges();
+initCloud(); // Firebase設定+合言葉があればクラウド共有を開始
 if (!state.apiKey) openSettings();
 </script>
 </body>
