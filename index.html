@@ -2098,13 +2098,22 @@ document.getElementById("btnExtractNaiki").addEventListener("click", async () =>
   if (!manuals.length) { alert("先にマニュアルを追加してください。"); return; }
   let src = manuals.map(m => `# ${m.title || "無題"}\n${m.content || ""}`).join("\n\n");
   if (src.length > 12000) src = src.slice(0, 12000) + "\n…(以下省略)";
+  // 既存の内規がある場合は、不足分のみ抽出するかを確認する
+  const existing = (state.naiki || "").trim();
+  let diffMode = false;
+  if (existing) {
+    diffMode = confirm("既存の内規と比較して、不足している項目のみを抽出しますか?\n\nOK: 不足分のみ抽出(既存の内規にある項目は除く)\nキャンセル: マニュアル全体から抽出");
+  }
   const btn = document.getElementById("btnExtractNaiki");
   btn.disabled = true;
   btn.textContent = "抽出中...";
   try {
+    const userMsg = diffMode
+      ? `以下は現在の内規です。\n----- 現在の内規ここから -----\n${existing}\n----- 現在の内規ここまで -----\n\n以下は社内マニュアルです。マニュアルから内規(会計処理のルール)として明文化できる項目のうち、現在の内規で既にカバーされている項目は除外し、不足している項目のみを抽出してください。不足がなければ「(不足している項目はありません)」とだけ返してください。\n\n${src}`
+      : `以下は社内マニュアルです。ここから内規(会計処理のルール)として明文化できる項目を抽出してください。\n\n${src}`;
     const extracted = await callClaude({
       system: NAIKI_EXTRACT_SYSTEM,
-      messages: [{ role: "user", content: `以下は社内マニュアルです。ここから内規(会計処理のルール)として明文化できる項目を抽出してください。\n\n${src}` }]
+      messages: [{ role: "user", content: userMsg }]
     });
     document.getElementById("manualNaikiText").value = (extracted || "").trim();
     document.getElementById("manualNaikiSaved").style.display = "none";
