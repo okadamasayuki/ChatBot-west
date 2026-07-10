@@ -382,6 +382,7 @@
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
   .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
+  .case .handled-by { font-size: 12px; color: #4a5568; margin-top: 8px; background: #eef2f8; border-radius: 8px; padding: 5px 10px; display: inline-block; }
   .empty-note { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 0; }
 
   /* ===== 内規 / マニュアル パネル ===== */
@@ -1456,8 +1457,9 @@ function renderCase(c) {
     <div class="reason">💡 AIの判断: ${escapeHtml(c.reason)}</div>`;
 
   if (c.status === "answered") {
-    html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>
-      <div class="answered-note">質問者に回答を送信しました。</div>`;
+    html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>`;
+    if (c.handledBy) html += `<div class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</div>`;
+    html += `<div class="answered-note">質問者に回答を送信しました。</div>`;
     html += naikiReflectHtml(c);
     div.innerHTML = html;
     return div;
@@ -1579,17 +1581,19 @@ expertList.addEventListener("click", async e => {
     const ta = expertList.querySelector(`textarea.draft[data-case="${c.id}"]`);
     const finalText = (ta ? ta.value : c.draft || "").trim();
     if (!finalText) { alert("回答文が空です。"); return; }
+    const handler = (cloud.user && cloud.user.email) || "";
     expertEditing = null;
     addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() }, c.roomId);
     addQa({
       question: c.question,
       answered_by: "専門家",
+      handler: handler,
       selected_option: (c.selectedOption !== null && c.selectedOption !== undefined) ? c.options[c.selectedOption] : "(自由/音声入力)",
       answer: finalText,
       asked_at: c.askedAt,
       answered_at: nowIso()
     });
-    updateCase(c, { answer: finalText, status: "answered", answeredAt: nowIso() });
+    updateCase(c, { answer: finalText, status: "answered", answeredAt: nowIso(), handledBy: handler });
     return;
   }
 
@@ -1859,9 +1863,9 @@ document.getElementById("btnDlJson").addEventListener("click", () => {
 });
 document.getElementById("btnDlCsv").addEventListener("click", () => {
   const esc = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
-  const rows = [["質問日時", "質問", "回答者", "選択された方針", "回答", "回答日時"].map(esc).join(",")];
+  const rows = [["質問日時", "質問", "回答者", "対応者", "選択された方針", "回答", "回答日時"].map(esc).join(",")];
   for (const q of state.qaLog) {
-    rows.push([q.asked_at, q.question, q.answered_by, q.selected_option || "", q.answer, q.answered_at].map(esc).join(","));
+    rows.push([q.asked_at, q.question, q.answered_by, q.handler || "", q.selected_option || "", q.answer, q.answered_at].map(esc).join(","));
   }
   // Excel で文字化けしないよう BOM 付き UTF-8
   downloadFile(`qa-history-${stamp()}.csv`, "﻿" + rows.join("\r\n"), "text/csv;charset=utf-8");
