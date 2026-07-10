@@ -293,6 +293,7 @@
     padding: 14px;
     box-shadow: 0 1px 3px rgba(0,0,0,.1);
   }
+  .case.jump-hl { box-shadow: 0 0 0 3px rgba(6,199,85,.5); transition: box-shadow .3s; }
   .case .q-label {
     display: inline-block;
     background: #273246;
@@ -527,6 +528,7 @@
         <button class="rf" data-filter="all">全員の相談</button>
       </div>
       <div id="roomTitle">相談</div>
+      <button id="btnRoomToCase" style="display:none;">BAで見る</button>
       <button id="btnRoomDone" style="display:none;">完了にする</button>
       <button id="btnNewRoom">＋ 新規</button>
     </div>
@@ -1306,6 +1308,7 @@ function updateRoomBar() {
     nw.style.display = isExpert ? "none" : "inline-block";
     title.style.display = "none";
     doneBtn.style.display = "none";
+    document.getElementById("btnRoomToCase").style.display = "none";
     if (isExpert) {
       filters.style.display = "none";
     } else {
@@ -1320,6 +1323,10 @@ function updateRoomBar() {
     title.style.display = "block";
     const r = currentRoom();
     title.textContent = r ? (r.title || "相談") : "相談";
+    // BAタブの該当案件へジャンプ(財務のみ。案件がありBAタブに表示されている場合)
+    const toCase = document.getElementById("btnRoomToCase");
+    toCase.style.display = (isExpert && state.cases.some(c => c.roomId === currentRoomId) && !isDoneRoomId(currentRoomId))
+      ? "inline-block" : "none";
     // 完了の切り替え(財務と相談の本人のみ。未保存の新規相談には出さない)
     const canDone = !!r && cloud.on && !pendingRoomIs(r) && (isExpert || isMyRoom(r));
     const isDone = !!r && r.status === "done";
@@ -1634,6 +1641,25 @@ document.getElementById("btnRoomDone").addEventListener("click", () => {
   if (currentRoomId) toggleRoomDone(currentRoomId);
 });
 
+// チャットからBAタブの該当案件へジャンプ(未回答の案件を優先)
+function jumpToCase(roomId) {
+  const c = state.cases.find(x => x.roomId === roomId && x.status !== "answered")
+    || state.cases.find(x => x.roomId === roomId);
+  if (!c) return;
+  activateTab("expert");
+  // タブ切り替え直後は非表示状態のことがあるため、表示後にスクロールする
+  setTimeout(() => {
+    const el = expertList.querySelector(`.case[data-case-id="${c.id}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.classList.add("jump-hl");
+    setTimeout(() => el.classList.remove("jump-hl"), 2000);
+  }, 60);
+}
+document.getElementById("btnRoomToCase").addEventListener("click", () => {
+  if (currentRoomId) jumpToCase(currentRoomId);
+});
+
 // クリック: 選択 / 削除 / ルームを開く / 選択肢送信
 chatLog.addEventListener("click", e => {
   const selBox = e.target.closest(".room-sel");
@@ -1852,6 +1878,7 @@ function renderExpert() {
 function renderCase(c) {
   const div = document.createElement("div");
   div.className = "case";
+  div.dataset.caseId = c.id; // チャットからのジャンプ先として特定できるように
 
   // ステータス＋対応者を統合したラベル(要対応 / 対応中：対応者 / 対応済み：対応者)
   // 未回答はクリックで自分を対応者にON/OFF(トグル)できる
