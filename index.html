@@ -1175,6 +1175,7 @@ function updateRoomBar() {
   }
 }
 
+let roomListScrollTop = 0; // 相談一覧のスクロール位置(ルームを開いて戻っても保持)
 function renderRoomList() {
   chatLog.innerHTML = "";
   // メッセージのない相談(空の下書きの残骸)は一覧に出さない
@@ -1211,7 +1212,13 @@ function renderRoomList() {
       </div>`;
     chatLog.appendChild(row);
   }
+  // 記録しておいたスクロール位置に戻す(一番上に飛ばない)
+  chatLog.scrollTop = roomListScrollTop;
 }
+// 一覧表示中のスクロール位置を記録
+chatLog.addEventListener("scroll", () => {
+  if (!currentRoomId && chatLog.classList.contains("list-mode")) roomListScrollTop = chatLog.scrollTop;
+});
 
 function renderChat() {
   updateRoomBar();
