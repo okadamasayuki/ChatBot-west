@@ -2216,7 +2216,7 @@ document.getElementById("btnAddSamples").addEventListener("click", async () => {
   btn.disabled = true; btn.textContent = "追加中...";
   try {
     const n = await addSampleConsultations();
-    alert(n > 0 ? `サンプル相談を${n}件追加しました。` : "サンプルは既に追加されています。");
+    alert(n > 0 ? `サンプル相談を${n}件追加しました。` : "サンプルは既に追加済みのため、メッセージの表示順(時刻)を修復しました。");
     modalSettings.classList.remove("show");
   } catch (e) {
     alert("追加に失敗しました: " + (e.message || e));
@@ -2347,8 +2347,9 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 /* ================= サンプルデータ(デモ用) ================= */
 function exampleData() {
   const ESC = "ご質問ありがとうございます。この内容はBAによる確認が必要なため、BAにおつなぎしました。回答までしばらくお待ちください。";
-  // 起点から n 時間後(24時間を超えたら翌日に繰り上げ。"T24:00"のような不正な日時を作らない)
-  const ts = (n) => new Date(Date.UTC(2026, 6, 9, n, 0, 0)).toISOString();
+  // 常に「過去48時間前」を起点に1時間刻み(未来の時刻を作らない。実際の返信が必ず後ろに並ぶ)
+  const base = Date.now() - 48 * 3600 * 1000;
+  const ts = (n) => new Date(base + n * 3600 * 1000).toISOString();
   let hour = 0;
 
   const ai = (id, title, q, a) => {
@@ -2437,14 +2438,21 @@ function loadExamples() {
   return added;
 }
 
-// サンプル相談をクラウド(Firestore)に追加。既存(同じID)はスキップ。追加件数を返す。
+// サンプル相談をクラウド(Firestore)に追加。既存(同じID)は時刻を修復(順番のずれを直す)。追加件数を返す。
 async function addSampleConsultations() {
   if (!cloud.on) throw new Error("ログインしてから追加してください。");
   let added = 0;
   for (const e of exampleData()) {
-    if (rooms.some(r => r.id === e.room.id)) continue;
+    e.room.lastText = e.msgs[e.msgs.length - 1].text;
+    if (rooms.some(r => r.id === e.room.id)) {
+      // 既存サンプル: メッセージの時刻を過去の連番に揃え直す(不正/未来の時刻で順番が乱れるのを修復)
+      for (const msg of e.msgs) {
+        await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", e.room.id, "messages", msg.id), msg, { merge: true });
+      }
+      await cloud.fs.setDoc(cloudRoomDoc(e.room.id), { createdAt: e.room.createdAt, lastTs: e.room.lastTs }, { merge: true });
+      continue;
+    }
     const room = { ...e.room, ownerUid: myUid(), ownerEmail: (cloud.user && cloud.user.email) || e.room.ownerEmail || "" };
-    room.lastText = e.msgs[e.msgs.length - 1].text;
     await cloud.fs.setDoc(cloudRoomDoc(room.id), room);
     for (const msg of e.msgs) {
       await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", room.id, "messages", msg.id), msg);
