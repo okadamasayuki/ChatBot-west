@@ -159,6 +159,7 @@
     border-radius: 6px; padding: 1px 6px; margin-top: 4px;
   }
   .room-tag.done { background: #e3f6e9; color: #1f8a4c; }
+  .room-tag.finished { background: #e8ebf1; color: #5a6a80; }
   .room-meta { font-size: 10px; color: #9aa6b6; flex-shrink: 0; margin-left: 6px; }
   .room-empty { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 20px; line-height: 1.7; }
 
@@ -378,6 +379,20 @@
     cursor: pointer;
   }
   .room-naiki-btn:hover { background: #e9eef5; border-color: #06c755; }
+  .room-done-btn {
+    flex-shrink: 0;
+    margin-left: 8px;
+    width: 34px; height: 34px;
+    border: 1px solid #d4d9e2;
+    border-radius: 50%;
+    background: #f5f7fa;
+    color: #b6c0cf;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .room-done-btn:hover { border-color: #06c755; }
+  .room-done-btn.on { background: #06c755; border-color: #06c755; color: #fff; }
+  .room-item.done-room .room-title { color: #9aa6b6; }
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
   .case .handled-by { font-size: 12px; color: #4a5568; background: #eef2f8; border-radius: 8px; padding: 5px 10px; display: inline-block; }
@@ -1281,10 +1296,16 @@ function renderRoomList() {
   for (const r of sorted) {
     const openCase = state.cases.some(c => c.roomId === r.id && c.status !== "answered");
     const answered = state.cases.some(c => c.roomId === r.id && c.status === "answered");
+    const doneRoom = r.status === "done";
     let tag = "";
-    if (openCase) tag = '<div class="room-tag">BA対応中</div>';
+    if (doneRoom) tag = '<div class="room-tag finished">✓ 完了</div>';
+    else if (openCase) tag = '<div class="room-tag">BA対応中</div>';
     else if (answered) tag = '<div class="room-tag done">BA回答済み</div>';
     const mine = canDeleteRoom(r); // 自分の相談のみスワイプ削除可(財務は不可)
+    // 完了の切り替えは財務と相談の本人のみ
+    const doneBtn = (cloud.on && (cloud.role === "expert" || isMyRoom(r)))
+      ? `<button class="room-done-btn${doneRoom ? " on" : ""}" data-done-room="${r.id}" title="${doneRoom ? "完了を取り消す" : "完了にする"}" type="button">✓</button>`
+      : "";
     // 財務は一覧から直接、その相談をもとに社内ルールを更新できる
     const naikiBtn = (cloud.on && cloud.role === "expert")
       ? `<button class="room-naiki-btn" data-naiki-room="${r.id}" title="この相談から社内ルールを更新" type="button">📋</button>`
@@ -1293,12 +1314,13 @@ function renderRoomList() {
     row.className = "room-row";
     row.innerHTML =
       (mine ? `<button class="room-del" data-del="${r.id}">削除</button>` : "") +
-      `<div class="room-item${mine ? " swipeable" : ""}" data-room="${r.id}">
+      `<div class="room-item${mine ? " swipeable" : ""}${doneRoom ? " done-room" : ""}" data-room="${r.id}">
         <div class="room-main">
           <div class="room-title">${escapeHtml(r.title || "相談")}</div>
           ${tag}
         </div>
         <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>
+        ${doneBtn}
         ${naikiBtn}
       </div>`;
     chatLog.appendChild(row);
@@ -1494,8 +1516,25 @@ chatLog.addEventListener("touchend", () => {
   swipe = null;
 });
 
+// 相談の完了ステータスを切り替え(財務と相談の本人のみ)
+async function toggleRoomDone(roomId) {
+  const r = rooms.find(x => x.id === roomId);
+  if (!r) return;
+  if (!(cloud.on && (cloud.role === "expert" || isMyRoom(r)))) return;
+  const status = r.status === "done" ? "" : "done";
+  r.status = status; // 先に画面へ反映(Firestoreの反映を待たない)
+  if (!currentRoomId) renderChat();
+  try {
+    await cloud.fs.updateDoc(cloudRoomDoc(roomId), { status });
+  } catch (e) {
+    console.error("完了ステータスの更新エラー:", e);
+  }
+}
+
 // クリック: 削除 / ルームを開く / 選択肢送信
 chatLog.addEventListener("click", e => {
+  const db = e.target.closest("[data-done-room]");
+  if (db) { toggleRoomDone(db.dataset.doneRoom); return; }
   const nb = e.target.closest("[data-naiki-room]");
   if (nb) { openRoomNaikiModal(nb.dataset.naikiRoom); return; }
   const del = e.target.closest(".room-del");
