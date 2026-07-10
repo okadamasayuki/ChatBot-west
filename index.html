@@ -605,6 +605,10 @@
           <div class="sample-row"><button class="sample-add" data-manual="kyuyo" data-title="給与・社会保険マニュアル">📄 給与・社会保険マニュアル を追加</button></div>
         </div>
       </div>
+      <div id="consultAdminSection" style="display:none;margin-top:12px;">
+        <div class="nr-title">💬 相談データ</div>
+        <button class="btn secondary" id="btnDeleteAllRooms" style="margin-top:6px;">🗑 相談をすべて削除</button>
+      </div>
       <div id="naikiAdminSection" style="display:none;margin-top:12px;">
         <div class="nr-title">📘 社内ルール</div>
         <button class="btn secondary" id="btnClearNaiki" style="margin-top:6px;">🗑 社内ルールを空にする</button>
@@ -2029,6 +2033,36 @@ function renderNaiki() {
   ta.value = state.naiki || "";
 }
 
+// 相談をすべて削除(財務のみ。ルーム・メッセージ・BA案件を全消去)
+document.getElementById("btnDeleteAllRooms").addEventListener("click", async () => {
+  if (!(cloud.on && cloud.role === "expert")) { alert("財務アカウントでログインしてください。"); return; }
+  if (!rooms.length && !state.cases.length) { alert("削除する相談はありません。"); return; }
+  if (!confirm(`すべての相談(${rooms.length}件)とBAの案件を削除しますか?\n全員の画面から消え、元に戻せません。`)) return;
+  if (!confirm("本当に削除しますか?(最終確認)")) return;
+  const btn = document.getElementById("btnDeleteAllRooms");
+  btn.disabled = true;
+  btn.textContent = "削除中...";
+  try {
+    const { collection, getDocs, deleteDoc } = cloud.fs;
+    const rsnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "rooms"));
+    for (const rd of rsnap.docs) {
+      const msnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "rooms", rd.id, "messages"));
+      for (const md of msnap.docs) await deleteDoc(md.ref);
+      await deleteDoc(rd.ref);
+    }
+    const csnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "cases"));
+    for (const cd of csnap.docs) await deleteDoc(cd.ref);
+    currentRoomId = null;
+    alert("すべての相談を削除しました。");
+    modalSettings.classList.remove("show");
+  } catch (e) {
+    console.error("相談の全削除エラー:", e);
+    alert("削除に失敗しました: " + (e.message || e));
+  }
+  btn.disabled = false;
+  btn.textContent = "🗑 相談をすべて削除";
+});
+
 // 社内ルールを空にする(全員に反映されるため確認してから)
 document.getElementById("btnClearNaiki").addEventListener("click", () => {
   if (!(state.naiki || "").trim()) { alert("社内ルールは既に空です。"); return; }
@@ -2362,8 +2396,9 @@ document.querySelectorAll("#tabs .tab").forEach(tab => {
 const modalSettings = document.getElementById("modalSettings");
 function openSettings() {
   updateAuthUI();
-  // 社内ルール管理・回答の癖(財務のみ表示)
+  // 相談データ・社内ルール管理・回答の癖(財務のみ表示)
   const isExpert = cloud.on && cloud.role === "expert";
+  document.getElementById("consultAdminSection").style.display = isExpert ? "" : "none";
   document.getElementById("naikiAdminSection").style.display = isExpert ? "" : "none";
   const styleSec = document.getElementById("answerStyleSection");
   styleSec.style.display = isExpert ? "" : "none";
