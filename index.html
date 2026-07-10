@@ -1386,8 +1386,9 @@ function updateRoomBatchBtn() {
   btn.style.display = selectedRooms.size ? "" : "none";
   btn.textContent = "📋 社内ルールを更新";
 }
-let roomSort = "new";      // 並び替え: "new"=新しい順 / "old"=古い順 / "status"=ステータス順
+let roomSort = "new";      // 並び替え: "new"=新しい順 / "status"=ステータス順
 try { roomSort = localStorage.getItem("roomSort") || "new"; } catch (e) {}
+if (roomSort !== "status") roomSort = "new"; // 廃止した並び順(古い順)が保存されていたら既定に戻す
 function renderRoomList() {
   chatLog.innerHTML = "";
   // メッセージのない相談(空の下書きの残骸)は一覧に出さない
@@ -1409,7 +1410,6 @@ function renderRoomList() {
   sortBar.innerHTML =
     (isExpertList ? `<button class="btn secondary" id="roomBatchNaiki" type="button" style="display:none;margin-right:auto;font-size:12px;padding:6px 10px;"></button>` : "") +
     `<button type="button" class="sc" data-sort="new">新しい順</button>
-    <button type="button" class="sc" data-sort="old">古い順</button>
     <button type="button" class="sc" data-sort="status">ステータス順</button>`;
   sortBar.querySelectorAll(".sc").forEach(b => {
     b.classList.toggle("active", b.dataset.sort === roomSort);
@@ -1427,9 +1427,7 @@ function renderRoomList() {
   const openSet = new Set(state.cases.filter(c => c.status !== "answered").map(c => c.roomId));
   const byNew = (a, b) => (b.lastTs || "").localeCompare(a.lastTs || "");
   let sorted;
-  if (roomSort === "old") {
-    sorted = list.sort((a, b) => byNew(b, a));
-  } else if (roomSort === "status") {
+  if (roomSort === "status") {
     // BA回答待ち → 担当者回答待ち → 完了(同じステータス内は新しい順)
     const rank = r => r.status === "done" ? 2 : (openSet.has(r.id) ? 0 : 1);
     sorted = list.sort((a, b) => (rank(a) - rank(b)) || byNew(a, b));
