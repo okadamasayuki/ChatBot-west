@@ -129,6 +129,13 @@
 
   /* ===== Room list (LINEのトーク履歴) ===== */
   #chatLog.list-mode { padding: 0; gap: 0; background: #fff; }
+  .room-row { position: relative; overflow: hidden; }
+  .room-del {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 84px; border: none;
+    background: #ff3b30; color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
   .room-item {
     display: flex;
     gap: 10px;
@@ -136,7 +143,11 @@
     padding: 12px 14px;
     border-bottom: 1px solid #eef0f4;
     cursor: pointer;
+    background: #fff;
+    position: relative;
+    transition: transform .2s ease;
   }
+  .room-item.swipeable { touch-action: pan-y; }
   .room-item:hover { background: #f5f7fa; }
   .room-avatar {
     width: 40px; height: 40px;
@@ -488,8 +499,6 @@
       <div class="warn">⚠ このアプリはブラウザから直接 Claude API を呼び出します。API キーはこの端末の localStorage にのみ保存されますが、共有端末では使用しないでください。</div>
       <p>Anthropic API キー(<code>sk-ant-...</code>)を入力してください。</p>
       <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...">
-      <p id="naikiNote" style="margin-top:4px;">内規(社内ルール) — チーム共通の1つを運用します。回答時にAIが参照し、共有ONの場合はチーム全員に反映されます。</p>
-      <textarea id="naikiInput" placeholder="## 会計処理ルール&#10;&#10;- 減価償却は定額法とする。"></textarea>
 
       <hr style="border:none;border-top:1px solid #e5e8ee;margin:14px 0;">
       <h2 style="font-size:14px;">☁ アカウント</h2>
@@ -990,7 +999,8 @@ function updateRoomBar() {
   const filters = document.getElementById("roomFilters");
   if (!currentRoomId) {
     back.style.display = "none";
-    nw.style.display = "inline-block";
+    // 財務(専門家)は相談を作成しないため「＋新規」を非表示
+    nw.style.display = (cloud.on && cloud.role === "expert") ? "none" : "inline-block";
     title.style.display = "none";
     filters.style.display = "flex";
     updateFilterButtons();
@@ -1020,20 +1030,23 @@ function renderRoomList() {
     let tag = "";
     if (openCase) tag = '<div class="room-tag">専門家対応中</div>';
     else if (answered) tag = '<div class="room-tag done">専門家回答済み</div>';
-    // 「相談一覧(全体)」表示のときは相談者を表示
+    // 「全員の相談」表示のときは相談者を表示
     const owner = (roomFilter === "all" && r.ownerEmail) ? `<div class="room-owner">相談者: ${escapeHtml(r.ownerEmail)}</div>` : "";
-    const div = document.createElement("div");
-    div.className = "room-item";
-    div.dataset.room = r.id;
-    div.innerHTML = `
-      <div class="room-avatar">💬</div>
-      <div class="room-main">
-        <div class="room-title">${escapeHtml(r.title || "相談")}</div>
-        <div class="room-preview">${escapeHtml(snippet(r.lastText, 40) || "(メッセージなし)")}</div>
-        ${owner}${tag}
-      </div>
-      <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>`;
-    chatLog.appendChild(div);
+    const mine = isMyRoom(r); // 自分の相談のみスワイプ削除可
+    const row = document.createElement("div");
+    row.className = "room-row";
+    row.innerHTML =
+      (mine ? `<button class="room-del" data-del="${r.id}">削除</button>` : "") +
+      `<div class="room-item${mine ? " swipeable" : ""}" data-room="${r.id}">
+        <div class="room-avatar">💬</div>
+        <div class="room-main">
+          <div class="room-title">${escapeHtml(r.title || "相談")}</div>
+          <div class="room-preview">${escapeHtml(snippet(r.lastText, 40) || "(メッセージなし)")}</div>
+          ${owner}${tag}
+        </div>
+        <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>
+      </div>`;
+    chatLog.appendChild(row);
   }
 }
 
@@ -1135,10 +1148,78 @@ document.querySelectorAll("#roomFilters .rf").forEach(b => {
   b.addEventListener("click", () => setRoomFilter(b.dataset.filter));
 });
 
-// クリック: ルーム項目を開く / 選択肢ボタンを送信
+// 相談ルームの削除(自分の相談のみ)
+async function deleteRoom(id) {
+  const r = rooms.find(x => x.id === id);
+  if (!r || !isMyRoom(r)) return;
+  if (!confirm("この相談を削除しますか?元に戻せません。")) return;
+  if (cloud.on) {
+    try {
+      const { collection, getDocs, deleteDoc, doc } = cloud.fs;
+      const msgs = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "rooms", id, "messages"));
+      await Promise.all(msgs.docs.map(d => deleteDoc(d.ref)));
+      await Promise.all(state.cases.filter(c => c.roomId === id).map(c => deleteDoc(doc(cloud.db, "workspaces", cloud.wid, "cases", c.id))));
+      await deleteDoc(doc(cloud.db, "workspaces", cloud.wid, "rooms", id));
+    } catch (e) { console.error(e); alert("削除に失敗しました: " + (e.message || e)); }
+  } else {
+    state.rooms = state.rooms.filter(x => x.id !== id);
+    delete state.roomMsgs[id];
+    state.cases = state.cases.filter(c => c.roomId !== id);
+    saveState();
+    rooms = state.rooms.slice();
+    renderChat(); renderExpert(); updateBadges();
+  }
+  if (currentRoomId === id) backToRooms();
+}
+
+// 左スワイプで削除ボタンを表示
+let swipe = null, suppressClick = false;
+function closeAllSwipes(except) {
+  chatLog.querySelectorAll(".room-item.swipeable").forEach(el => {
+    if (el !== except) { el.style.transform = ""; el.dataset.open = ""; }
+  });
+}
+chatLog.addEventListener("touchstart", e => {
+  const item = e.target.closest(".room-item.swipeable");
+  if (!item) return;
+  const base = item.dataset.open === "1" ? -84 : 0;
+  swipe = { el: item, x: e.touches[0].clientX, y: e.touches[0].clientY, base, dx: base, moved: false };
+  item.style.transition = "none";
+}, { passive: true });
+chatLog.addEventListener("touchmove", e => {
+  if (!swipe) return;
+  const dx = e.touches[0].clientX - swipe.x;
+  const dy = e.touches[0].clientY - swipe.y;
+  if (!swipe.moved && Math.abs(dx) < Math.abs(dy)) { swipe.el.style.transition = ""; swipe = null; return; } // 縦スクロール優先
+  if (Math.abs(dx) > 6) swipe.moved = true;
+  const t = Math.max(-84, Math.min(0, swipe.base + dx));
+  swipe.dx = t;
+  swipe.el.style.transform = `translateX(${t}px)`;
+  if (swipe.moved) e.preventDefault();
+}, { passive: false });
+chatLog.addEventListener("touchend", () => {
+  if (!swipe) return;
+  const el = swipe.el;
+  el.style.transition = "";
+  const open = swipe.dx < -42;
+  el.style.transform = open ? "translateX(-84px)" : "";
+  el.dataset.open = open ? "1" : "";
+  if (swipe.moved) { suppressClick = true; setTimeout(() => (suppressClick = false), 120); }
+  if (open) closeAllSwipes(el);
+  swipe = null;
+});
+
+// クリック: 削除 / ルームを開く / 選択肢送信
 chatLog.addEventListener("click", e => {
+  const del = e.target.closest(".room-del");
+  if (del) { deleteRoom(del.dataset.del); return; }
   const roomEl = e.target.closest(".room-item");
-  if (roomEl) { openRoom(roomEl.dataset.room); return; }
+  if (roomEl) {
+    if (suppressClick) return;
+    if (roomEl.dataset.open === "1") { roomEl.style.transform = ""; roomEl.dataset.open = ""; return; }
+    openRoom(roomEl.dataset.room);
+    return;
+  }
   const btn = e.target.closest(".choice-btn");
   if (!btn || sending) return;
   submitQuestion(btn.textContent);
@@ -1442,20 +1523,8 @@ document.querySelectorAll("#tabs .tab").forEach(tab => {
 /* ================= 設定 ================= */
 const modalSettings = document.getElementById("modalSettings");
 const apiKeyInput = document.getElementById("apiKeyInput");
-const naikiInput = document.getElementById("naikiInput");
 function openSettings() {
   apiKeyInput.value = state.apiKey || "";
-  naikiInput.value = state.naiki || "";
-  // 内規: 担当者には非表示。財務は閲覧のみ(編集はFirebaseコンソールで管理)。
-  const showNaiki = !(cloud.on && cloud.role === "questioner");
-  const note = document.getElementById("naikiNote");
-  naikiInput.style.display = showNaiki ? "" : "none";
-  if (note) {
-    note.style.display = showNaiki ? "" : "none";
-    note.textContent = "内規(社内ルール) — チーム共通の1つを運用。閲覧のみ(編集はFirebaseコンソールで管理者が行います)。回答時にAIが参照します。";
-  }
-  naikiInput.readOnly = true;
-  naikiInput.style.background = "#f3f4f6";
   updateAuthUI();
   modalSettings.classList.add("show");
 }
