@@ -630,6 +630,7 @@
       <p>チーム共有を利用するにはログインが必要です。管理者に発行されたアカウントでログインしてください。</p>
       <input type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="username">
       <input type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password">
+      <input type="text" id="loginNickname" placeholder="ニックネーム(新規登録時に入力)" autocomplete="nickname">
       <div style="margin-bottom:10px;">
         <div style="font-size:12px;color:#555;margin-bottom:6px;">役割(新規登録・初回ログイン時に選択):</div>
         <label style="display:block;font-size:13px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="role" value="questioner" checked> 担当者(質問のみ)</label>
@@ -812,7 +813,9 @@ const FIREBASE_CONFIG = {
 // 全員が同じワークスペースを共有(アカウント作成スクリプトでも同じ値を使う)
 const WORKSPACE_CODE = "chatbotwest-5b568-main";
 
-const cloud = { on: false, configured: false, fs: null, authMod: null, fnMod: null, functions: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null, role: null, pendingRole: null };
+const cloud = { on: false, configured: false, fs: null, authMod: null, fnMod: null, functions: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null, role: null, pendingRole: null, nickname: null, pendingNickname: null };
+// 表示名: ニックネーム優先、なければメールアドレス
+function myName() { return (cloud.nickname && cloud.nickname.trim()) || (cloud.user && cloud.user.email) || ""; }
 
 async function sha256hex(s) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -836,7 +839,7 @@ function updateAuthUI() {
   const btn = document.getElementById("btnLogout");
   if (btn) btn.style.display = cloud.user ? "inline-block" : "none";
   const info = document.getElementById("authInfo");
-  if (info) info.textContent = cloud.user ? ("ログイン中: " + (cloud.user.email || "") + " / " + roleLabel(cloud.role)) : (cloud.configured ? "未ログイン" : "");
+  if (info) info.textContent = cloud.user ? ("ログイン中: " + (myName() || "") + " / " + roleLabel(cloud.role)) : (cloud.configured ? "未ログイン" : "");
 }
 
 function roleLabel(r) { return r === "expert" ? "財務" : "担当者"; }
@@ -910,25 +913,30 @@ async function initCloud() {
         closeLogin();
         if (!cloud.subscribed) { subscribeCloud(); cloud.subscribed = true; }
         cloud.on = true;
-        // 役割を取得(未登録なら選択値で作成)
-        let role = null;
+        // 役割・ニックネームを取得(未登録なら選択値・入力値で作成)
+        let role = null, nickname = "";
         try {
           const mref = cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "members", user.uid);
           const snap = await cloud.fs.getDoc(mref);
           if (snap.exists() && snap.data().role) {
             role = snap.data().role;
+            nickname = snap.data().nickname || "";
           } else {
             role = cloud.pendingRole || "questioner";
-            await cloud.fs.setDoc(mref, { email: user.email || "", role, createdAt: nowIso() });
+            nickname = cloud.pendingNickname || "";
+            await cloud.fs.setDoc(mref, { email: user.email || "", role, nickname, createdAt: nowIso() });
           }
         } catch (e) { console.error(e); role = role || cloud.pendingRole || "questioner"; }
         cloud.pendingRole = null;
+        cloud.pendingNickname = null;
         cloud.role = role;
+        cloud.nickname = nickname;
         applyRole();
-        setCloudStatus("☁ " + (user.email || "共有中") + " / " + roleLabel(role), true);
+        setCloudStatus("☁ " + (myName() || "共有中") + " / " + roleLabel(role), true);
       } else {
         cloud.on = false;
         cloud.role = null;
+        cloud.nickname = null;
         unsubData();
         if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
         // 共有データが画面に残らないようにクリア(ローカル保存はしない)
@@ -1230,7 +1238,8 @@ function renderRoomList() {
     if (openCase) tag = '<div class="room-tag">専門家対応中</div>';
     else if (answered) tag = '<div class="room-tag done">専門家回答済み</div>';
     // 「全員の相談」表示のときは相談者を表示
-    const owner = (roomFilter === "all" && r.ownerEmail) ? `<div class="room-owner">相談者: ${escapeHtml(r.ownerEmail)}</div>` : "";
+    const ownerLabel = r.ownerName || r.ownerEmail;
+    const owner = (roomFilter === "all" && ownerLabel) ? `<div class="room-owner">相談者: ${escapeHtml(ownerLabel)}</div>` : "";
     const mine = canDeleteRoom(r); // 自分の相談のみスワイプ削除可(財務は不可)
     const row = document.createElement("div");
     row.className = "room-row";
@@ -1319,7 +1328,7 @@ function createRoom() {
   if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   pendingRoom = {
     id: uid(), title: "新しい相談", createdAt: nowIso(), lastText: "", lastTs: nowIso(),
-    ownerUid: myUid(), ownerEmail: cloud.user ? (cloud.user.email || "") : ""
+    ownerUid: myUid(), ownerEmail: cloud.user ? (cloud.user.email || "") : "", ownerName: myName()
   };
   currentRoomId = pendingRoom.id;
   roomMessages = [];
@@ -1781,7 +1790,7 @@ expertList.addEventListener("click", async e => {
 
   // 対応者として登録(回答前でも可)。ログイン中の財務アカウントを記録
   if (btn.dataset.action === "set-handler") {
-    const me = (cloud.user && cloud.user.email) || "";
+    const me = myName();
     if (!me) { alert("ログインしてから登録してください。"); return; }
     updateCase(c, { handledBy: me });
     return;
@@ -1816,7 +1825,7 @@ expertList.addEventListener("click", async e => {
     const ta = expertList.querySelector(`textarea.draft[data-case="${c.id}"]`);
     const finalText = (ta ? ta.value : c.draft || "").trim();
     if (!finalText) { alert("回答文が空です。"); return; }
-    const handler = c.handledBy || (cloud.user && cloud.user.email) || "";
+    const handler = c.handledBy || myName();
     expertEditing = null;
     addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() }, c.roomId);
     addQa({
@@ -2135,6 +2144,9 @@ async function doAuth(kind) {
   if (!email || !pass) { showLoginError("メールアドレスとパスワードを入力してください。"); return; }
   const roleEl = document.querySelector('input[name="role"]:checked');
   cloud.pendingRole = roleEl ? roleEl.value : "questioner"; // 新規登録・初回ログイン時の役割
+  const nickEl = document.getElementById("loginNickname");
+  cloud.pendingNickname = nickEl ? nickEl.value.trim() : ""; // 新規登録時のニックネーム
+  if (kind === "signup" && !cloud.pendingNickname) { showLoginError("ニックネームを入力してください。"); return; }
   try {
     if (kind === "signup") await cloud.authMod.createUserWithEmailAndPassword(cloud.auth, email, pass);
     else await cloud.authMod.signInWithEmailAndPassword(cloud.auth, email, pass);
