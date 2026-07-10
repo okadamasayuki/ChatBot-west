@@ -436,18 +436,12 @@
       <textarea id="naikiInput" placeholder="## 会計処理ルール&#10;&#10;- 減価償却は定額法とする。"></textarea>
 
       <hr style="border:none;border-top:1px solid #e5e8ee;margin:14px 0;">
-      <h2 style="font-size:14px;">☁ チーム共有(任意)</h2>
-      <p>Firebase を使うと、内規と質問⇄回答を<b>複数の担当者・端末で共有</b>できます。設定するには下の2つを入力してください(未設定ならこの端末のみで動作)。現在の状態: <span id="cloudStatusModal" style="font-weight:600;">ローカルのみ</span></p>
-      <p style="margin-bottom:4px;">① Firebase 設定(コンソールの firebaseConfig の <code>{ ... }</code> を貼り付け)</p>
-      <textarea id="firebaseInput" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
-      <p style="margin-bottom:4px;">② ワークスペース合言葉(チームで同じ文字列を共有。これを知る人だけが同じデータにアクセスできます)</p>
-      <input type="password" id="workspaceInput" placeholder="例: nishi-kaikei-2026-8f3a">
-      <div class="warn">共有ONの場合、内規と質問⇄回答は Firebase(クラウド)に保存され、ログインした担当者のみアクセスできます。合言葉は共有パスワードとして厳重に管理してください。セットアップ手順は README を参照。</div>
+      <h2 style="font-size:14px;">☁ アカウント</h2>
+      <p>このアプリは常にクラウド(Firebase)に接続し、内規・相談・回答をリアルタイムで共有します。接続状態: <span id="cloudStatusModal" style="font-weight:600;">接続中…</span></p>
       <div id="authInfo" style="font-size:12px;color:#06a04a;margin-bottom:8px;"></div>
       <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
-      <button class="btn secondary" id="btnLoadSamples" style="margin-bottom:12px;">サンプル相談を読み込む(デモ)</button>
       <div class="row">
-        <button class="btn secondary" id="btnClearData">全データ削除</button>
+        <button class="btn secondary" id="btnClearData">APIキーを削除</button>
         <button class="btn primary" id="btnSaveKey">保存</button>
       </div>
     </div>
@@ -608,6 +602,18 @@ function withNaiki(base) {
    内規・チャット・エスカレーション案件をクラウドで共有する。
    合言葉のSHA-256をワークスペースIDにするため、合言葉を知る担当者だけが
    同じデータにアクセスできる(合言葉は共有パスワードとして扱うこと)。 */
+// Firebaseは常時接続(ローカル利用なし)。設定はアプリに埋め込み、ユーザーはログインのみ。
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBh_8IDFllTnaJlZm3xPMm-TY_mTGWJ7Es",
+  authDomain: "chatbotwest-5b568.firebaseapp.com",
+  projectId: "chatbotwest-5b568",
+  storageBucket: "chatbotwest-5b568.firebasestorage.app",
+  messagingSenderId: "36025349912",
+  appId: "1:36025349912:web:e89a3ad0b8eb1fe4b6d06d"
+};
+// 全員が同じワークスペースを共有(アカウント作成スクリプトでも同じ値を使う)
+const WORKSPACE_CODE = "chatbotwest-5b568-main";
+
 const cloud = { on: false, configured: false, fs: null, authMod: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null, role: null, pendingRole: null };
 
 async function sha256hex(s) {
@@ -665,12 +671,9 @@ async function initCloud() {
   cloud.configured = false;
   cloud.user = null;
 
-  const cfgStr = (state.firebaseConfig || "").trim();
-  const code = (state.workspaceCode || "").trim();
-  if (!cfgStr || !code) { setCloudStatus("ローカルのみ", false); updateAuthUI(); return; }
-
-  let cfg;
-  try { cfg = JSON.parse(cfgStr); } catch (e) { setCloudStatus("Firebase設定のJSONが不正", false); return; }
+  // 埋め込みの設定で常時接続
+  const cfg = FIREBASE_CONFIG;
+  const code = WORKSPACE_CODE;
 
   setCloudStatus("接続中…", false);
   try {
@@ -1293,14 +1296,10 @@ document.querySelectorAll("#tabs .tab").forEach(tab => {
 const modalSettings = document.getElementById("modalSettings");
 const apiKeyInput = document.getElementById("apiKeyInput");
 const naikiInput = document.getElementById("naikiInput");
-const firebaseInput = document.getElementById("firebaseInput");
-const workspaceInput = document.getElementById("workspaceInput");
 function openSettings() {
   apiKeyInput.value = state.apiKey || "";
   naikiInput.value = state.naiki || "";
-  firebaseInput.value = state.firebaseConfig || "";
-  workspaceInput.value = state.workspaceCode || "";
-  // 内規: 担当者には非表示。財務(および設定前)は閲覧のみ(編集はFirebaseコンソールで管理)。
+  // 内規: 担当者には非表示。財務は閲覧のみ(編集はFirebaseコンソールで管理)。
   const showNaiki = !(cloud.on && cloud.role === "questioner");
   const note = document.getElementById("naikiNote");
   naikiInput.style.display = showNaiki ? "" : "none";
@@ -1310,35 +1309,15 @@ function openSettings() {
   }
   naikiInput.readOnly = true;
   naikiInput.style.background = "#f3f4f6";
-  // サンプル読み込みはローカル(共有OFF)時のみ
-  const sb = document.getElementById("btnLoadSamples");
-  if (sb) sb.style.display = cloud.on ? "none" : "block";
   updateAuthUI();
   modalSettings.classList.add("show");
 }
-document.getElementById("btnLoadSamples").addEventListener("click", () => {
-  const added = loadExamples();
-  rooms = state.rooms.slice();
-  currentRoomId = null;
-  renderChat();
-  renderExpert();
-  updateBadges();
-  modalSettings.classList.remove("show");
-  alert(added > 0 ? `サンプル相談を${added}件読み込みました。` : "サンプルは既に読み込まれています。");
-});
 document.getElementById("btnSettings").addEventListener("click", openSettings);
 document.getElementById("btnSaveKey").addEventListener("click", () => {
   state.apiKey = apiKeyInput.value.trim();
-  // 内規はアプリからは編集しない(Firebaseコンソールで管理)
-  const cloudChanged = (state.firebaseConfig !== firebaseInput.value.trim()) ||
-                       (state.workspaceCode !== workspaceInput.value.trim());
-  state.firebaseConfig = firebaseInput.value.trim();
-  state.workspaceCode = workspaceInput.value.trim();
+  // 内規・接続設定はアプリからは編集しない(内規はFirebaseコンソール、接続は埋め込み設定)
   saveState();
   modalSettings.classList.remove("show");
-  if (cloudChanged) {
-    location.reload();        // 接続設定が変わったら再読み込みして繋ぎ直す(Firebase初期化を一度だけに)
-  }
 });
 
 /* ================= ログイン (Firebase Authentication) ================= */
@@ -1511,13 +1490,7 @@ function loadExamples() {
   return added;
 }
 
-// 初回のみ自動投入(共有未設定 & データ無しのとき)
-function seedExamples() {
-  if (state.firebaseConfig) return;
-  if (state.rooms.length > 0) return;
-  loadExamples();
-}
-seedExamples();
+// (常時クラウド接続のため、ローカルのサンプル自動投入は行わない)
 
 /* ================= 初期化 ================= */
 rooms = state.rooms.slice();

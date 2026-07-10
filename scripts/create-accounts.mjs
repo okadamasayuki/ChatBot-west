@@ -10,7 +10,8 @@ import { readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 
 // ===== 設定(環境変数で上書き可) =====
-const WORKSPACE_CODE = process.env.WORKSPACE_CODE || "";           // アプリの「ワークスペース合言葉」と同一にすること
+// アプリに埋め込まれた WORKSPACE_CODE と同一(index.html の定数と一致させること)
+const WORKSPACE_CODE = process.env.WORKSPACE_CODE || "chatbotwest-5b568-main";
 const EMAIL_DOMAIN   = process.env.EMAIL_DOMAIN   || "example.com"; // アカウントのメールドメイン(実在不要・識別子として使用)
 const SERVICE_ACCOUNT = process.env.GOOGLE_APPLICATION_CREDENTIALS || "./serviceAccountKey.json";
 
