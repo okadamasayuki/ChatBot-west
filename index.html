@@ -504,7 +504,7 @@
 
   <div id="tabs">
     <div class="tab active" data-tab="chat"><span id="chatTabLabel">質問者</span><span class="badge" id="badgeChat"></span></div>
-    <div class="tab" data-tab="expert">専門家<span class="badge" id="badgeExpert"></span></div>
+    <div class="tab" data-tab="expert">BA<span class="badge" id="badgeExpert"></span></div>
     <div class="tab" data-tab="naiki" style="display:none;">社内ルール</div>
     <div class="tab" data-tab="manual" style="display:none;">マニュアル</div>
   </div>
@@ -657,7 +657,7 @@
         <div id="roleSelect" style="margin-bottom:10px;">
           <div style="font-size:12px;color:#555;margin-bottom:6px;">役割:</div>
           <label style="display:block;font-size:13px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="role" value="questioner" checked> 担当者(質問のみ)</label>
-          <label style="display:block;font-size:13px;cursor:pointer;"><input type="radio" name="role" value="expert"> 財務(会計の専門家)</label>
+          <label style="display:block;font-size:13px;cursor:pointer;"><input type="radio" name="role" value="expert"> 財務(BA)</label>
         </div>
         <div id="loginError" style="color:#c0392b;font-size:12px;margin-bottom:10px;display:none;"></div>
         <div class="row">
@@ -1191,7 +1191,7 @@ function subscribeRoomMessages(id) {
 function addMessage(msg, roomId) {
   roomId = roomId || currentRoomId;
   if (!roomId) return;
-  const lastText = msg.role === "user" ? msg.text : (msg.role === "expert" ? "【専門家】" + msg.text : msg.text);
+  const lastText = msg.role === "user" ? msg.text : (msg.role === "expert" ? "【BA】" + msg.text : msg.text);
   const isPending = pendingRoom && pendingRoom.id === roomId;
 
   if (cloud.on) {
@@ -1284,8 +1284,8 @@ function renderRoomList() {
     const openCase = state.cases.some(c => c.roomId === r.id && c.status !== "answered");
     const answered = state.cases.some(c => c.roomId === r.id && c.status === "answered");
     let tag = "";
-    if (openCase) tag = '<div class="room-tag">専門家対応中</div>';
-    else if (answered) tag = '<div class="room-tag done">専門家回答済み</div>';
+    if (openCase) tag = '<div class="room-tag">BA対応中</div>';
+    else if (answered) tag = '<div class="room-tag done">BA回答済み</div>';
     // 「全員の相談」表示のときは相談者を表示
     const ownerLabel = r.ownerName || r.ownerEmail;
     const owner = (roomFilter === "all" && ownerLabel) ? `<div class="room-owner">相談者: ${escapeHtml(ownerLabel)}</div>` : "";
@@ -1334,7 +1334,7 @@ function renderChat() {
   chatLog.classList.remove("list-mode");
   chatLog.innerHTML = "";
   if (roomMessages.length === 0 && !pendingTyping) {
-    chatLog.innerHTML = '<div class="msg system"><div class="bubble">会計に関する質問を入力してください。AIが回答できない場合は会計の専門家におつなぎします。</div></div>';
+    chatLog.innerHTML = '<div class="msg system"><div class="bubble">会計に関する質問を入力してください。AIが回答できない場合はBAにおつなぎします。</div></div>';
   }
   const lastIdx = roomMessages.length - 1;
   roomMessages.forEach((m, idx) => {
@@ -1353,7 +1353,7 @@ function renderChat() {
       div.innerHTML = `<div class="sender">🤖 AIアシスタント</div><div class="bubble">${escapeHtml(m.text)}</div>${extra}<div class="meta">${fmtTime(m.ts)}</div>`;
     } else if (m.role === "expert") {
       div.className = "msg other expert";
-      div.innerHTML = `<div class="sender">👤 会計専門家</div><div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
+      div.innerHTML = `<div class="sender">👤 BA</div><div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
     } else {
       div.className = "msg system";
       div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}</div>`;
@@ -1633,7 +1633,7 @@ async function submitQuestion(text) {
         askedAt: nowIso()
       };
       addCase(caseObj);
-      addMessage({ id: uid(), role: "ai", text: "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。", ts: nowIso() });
+      addMessage({ id: uid(), role: "ai", text: "ご質問ありがとうございます。この内容はBAによる確認が必要なため、BAにおつなぎしました。回答までしばらくお待ちください。", ts: nowIso() });
     }
   } catch (err) {
     pendingTyping = false;
@@ -1664,7 +1664,7 @@ function renderExpert() {
   const done = state.cases.filter(c => c.status === "answered");
 
   if (state.cases.length === 0) {
-    expertList.innerHTML = '<div class="empty-note">専門家への確認依頼はありません。<br>AIが回答できない質問が届くとここに表示されます。</div>';
+    expertList.innerHTML = '<div class="empty-note">BAへの確認依頼はありません。<br>AIが回答できない質問が届くとここに表示されます。</div>';
     return;
   }
   for (const c of [...open, ...done]) expertList.appendChild(renderCase(c));
@@ -1859,7 +1859,7 @@ expertList.addEventListener("click", async e => {
     addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() }, c.roomId);
     addQa({
       question: c.question,
-      answered_by: "専門家",
+      answered_by: "BA",
       handler: handler,
       selected_option: (c.selectedOption !== null && c.selectedOption !== undefined) ? c.options[c.selectedOption] : "(自由/音声入力)",
       answer: finalText,
@@ -2360,7 +2360,7 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 
 /* ================= サンプルデータ(デモ用) ================= */
 function exampleData() {
-  const ESC = "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。";
+  const ESC = "ご質問ありがとうございます。この内容はBAによる確認が必要なため、BAにおつなぎしました。回答までしばらくお待ちください。";
   const ts = (n) => `2026-07-10T${String(n).padStart(2, "0")}:00:00.000Z`;
   let hour = 0;
 
@@ -2386,7 +2386,7 @@ function exampleData() {
       room: { id, title, createdAt: t, lastText: "", lastTs: t3 },
       msgs: [{ id: id + "u", role: "user", text: q, ts: t }, { id: id + "a", role: "ai", text: ESC, ts: t2 }, { id: id + "e", role: "expert", text: answer, ts: t3 }],
       caseObj: { id: "c" + id, roomId: id, question: q, reason, options, selectedOption: sel, draft: null, status: "answered", answer, askedAt: t, answeredAt: t3 },
-      qa: { question: title, answered_by: "専門家", selected_option: options[sel], answer, asked_at: t, answered_at: t3 }
+      qa: { question: title, answered_by: "BA", selected_option: options[sel], answer, asked_at: t, answered_at: t3 }
     };
   };
 
