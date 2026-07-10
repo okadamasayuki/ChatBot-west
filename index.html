@@ -539,7 +539,10 @@
   <div class="panel" id="panel-naiki">
     <div class="pad-scroll">
       <textarea id="naikiEdit" style="background:#f3f4f6;" readonly></textarea>
-      <button class="btn secondary" id="btnCompactNaiki" style="margin-top:10px;flex:none;">🧹 コンパクト</button>
+      <div class="row" style="margin-top:10px;flex:none;">
+        <button class="btn secondary" id="btnCompactNaiki">🧹 コンパクト</button>
+        <button class="btn secondary" id="btnClearNaiki">🗑 空にする</button>
+      </div>
     </div>
   </div>
 
@@ -2014,6 +2017,14 @@ function renderNaiki() {
   if (!ta) return;
   ta.value = state.naiki || "";
 }
+
+// 社内ルールを空にする(全員に反映されるため確認してから)
+document.getElementById("btnClearNaiki").addEventListener("click", () => {
+  if (!(state.naiki || "").trim()) { alert("社内ルールは既に空です。"); return; }
+  if (!confirm("社内ルールをすべて削除して空にしますか?\n(全員の回答に反映されます。元に戻せません)")) return;
+  state.naiki = "";
+  saveState(); saveNaikiShared(); renderNaiki();
+});
 
 // 社内ルールをAIで整理してコンパクトにする(結果はモーダルで確認→置き換え)
 const modalCompactNaiki = document.getElementById("modalCompactNaiki");
