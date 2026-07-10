@@ -504,6 +504,7 @@
       <h2 style="font-size:14px;">☁ アカウント</h2>
       <p>このアプリは常にクラウド(Firebase)に接続し、内規・相談・回答をリアルタイムで共有します。接続状態: <span id="cloudStatusModal" style="font-weight:600;">接続中…</span></p>
       <div id="authInfo" style="font-size:12px;color:#06a04a;margin-bottom:8px;"></div>
+      <button class="btn secondary" id="btnAddSamples" style="margin-bottom:12px;">サンプル相談を追加(デモ)</button>
       <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
       <div class="row">
         <button class="btn secondary" id="btnClearData">APIキーを削除</button>
@@ -1577,6 +1578,19 @@ function openSettings() {
   modalSettings.classList.add("show");
 }
 document.getElementById("btnSettings").addEventListener("click", openSettings);
+document.getElementById("btnAddSamples").addEventListener("click", async () => {
+  const btn = document.getElementById("btnAddSamples");
+  if (!cloud.user) { alert("ログインしてから追加してください。"); return; }
+  btn.disabled = true; btn.textContent = "追加中...";
+  try {
+    const n = await addSampleConsultations();
+    alert(n > 0 ? `サンプル相談を${n}件追加しました。` : "サンプルは既に追加されています。");
+    modalSettings.classList.remove("show");
+  } catch (e) {
+    alert("追加に失敗しました: " + (e.message || e));
+  }
+  btn.disabled = false; btn.textContent = "サンプル相談を追加(デモ)";
+});
 document.getElementById("btnSaveKey").addEventListener("click", () => {
   state.apiKey = apiKeyInput.value.trim();
   // 内規・接続設定はアプリからは編集しない(内規はFirebaseコンソール、接続は埋め込み設定)
@@ -1754,10 +1768,32 @@ function loadExamples() {
   return added;
 }
 
-// (常時クラウド接続のため、ローカルのサンプル自動投入は行わない)
+// サンプル相談をクラウド(Firestore)に追加。既存(同じID)はスキップ。追加件数を返す。
+async function addSampleConsultations() {
+  if (!cloud.on) throw new Error("ログインしてから追加してください。");
+  let added = 0;
+  for (const e of exampleData()) {
+    if (rooms.some(r => r.id === e.room.id)) continue;
+    const room = { ...e.room, ownerUid: myUid(), ownerEmail: (cloud.user && cloud.user.email) || e.room.ownerEmail || "" };
+    room.lastText = e.msgs[e.msgs.length - 1].text;
+    await cloud.fs.setDoc(cloudRoomDoc(room.id), room);
+    for (const msg of e.msgs) {
+      await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", room.id, "messages", msg.id), msg);
+    }
+    if (e.caseObj && !state.cases.some(c => c.id === e.caseObj.id)) {
+      await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "cases", e.caseObj.id), e.caseObj);
+    }
+    added++;
+  }
+  return added;
+}
 
 /* ================= 初期化 ================= */
-rooms = state.rooms.slice();
+// 常時クラウド運用: ローカルに残った相談/案件(旧サンプル等)は使わないためクリア。
+// 実データはログイン後にFirestoreから読み込む。
+state.rooms = []; state.roomMsgs = {}; state.cases = []; state.qaLog = [];
+saveState();
+rooms = [];
 currentRoomId = null;
 renderChat();
 renderExpert();
