@@ -187,6 +187,7 @@
   .msg.other { align-self: flex-start; align-items: flex-start; }
   .msg.other .bubble { background: #fff; border-top-left-radius: 3px; }
   .msg.other .sender { font-size: 11px; color: #33415c; margin-bottom: 3px; padding-left: 4px; }
+  .msg.me .sender-me { font-size: 11px; color: #33415c; margin-bottom: 3px; padding-right: 4px; text-align: right; }
   .msg.expert .bubble { background: #fff8dc; border: 1px solid #e8d48a; }
   .msg.system { align-self: center; max-width: 90%; }
   .msg.system .bubble {
@@ -1318,12 +1319,15 @@ function renderChat() {
   if (roomMessages.length === 0 && !pendingTyping) {
     chatLog.innerHTML = '<div class="msg system"><div class="bubble">会計に関する質問を入力してください。AIが回答できない場合はBAにおつなぎします。</div></div>';
   }
+  // 他人の相談を閲覧しているときは、質問メッセージに相談者名を表示
+  const ownerName = (curRoom && !isMyRoom(curRoom)) ? ((curRoom.ownerName || curRoom.ownerEmail) || "") : "";
+  const userSender = ownerName ? `<div class="sender sender-me">🙋 ${escapeHtml(ownerName)}</div>` : "";
   const lastIdx = roomMessages.length - 1;
   roomMessages.forEach((m, idx) => {
     const div = document.createElement("div");
     if (m.role === "user") {
       div.className = "msg me";
-      div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
+      div.innerHTML = `${userSender}<div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
     } else if (m.role === "ai") {
       let extra = "";
       if (idx === lastIdx && Array.isArray(m.clarifyOptions) && m.clarifyOptions.length) {
