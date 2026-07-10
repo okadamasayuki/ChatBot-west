@@ -2033,11 +2033,11 @@ function renderNaiki() {
   ta.value = state.naiki || "";
 }
 
-// 相談をすべて削除(財務のみ。ルーム・メッセージ・BA案件を全消去)
+// 相談をすべて削除(財務のみ。ルーム・メッセージ・BA案件・回答履歴を全消去)
 document.getElementById("btnDeleteAllRooms").addEventListener("click", async () => {
   if (!(cloud.on && cloud.role === "expert")) { alert("財務アカウントでログインしてください。"); return; }
-  if (!rooms.length && !state.cases.length) { alert("削除する相談はありません。"); return; }
-  if (!confirm(`すべての相談(${rooms.length}件)とBAの案件を削除しますか?\n全員の画面から消え、元に戻せません。`)) return;
+  if (!rooms.length && !state.cases.length && !state.qaLog.length) { alert("削除する相談はありません。"); return; }
+  if (!confirm(`すべての相談(${rooms.length}件)・BAの案件・回答履歴を削除しますか?\n全員の画面から消え、元に戻せません。`)) return;
   if (!confirm("本当に削除しますか?(最終確認)")) return;
   const btn = document.getElementById("btnDeleteAllRooms");
   btn.disabled = true;
@@ -2052,6 +2052,9 @@ document.getElementById("btnDeleteAllRooms").addEventListener("click", async () 
     }
     const csnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "cases"));
     for (const cd of csnap.docs) await deleteDoc(cd.ref);
+    // 回答履歴(CSVダウンロード用のログ)も削除
+    const qsnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "qa"));
+    for (const qd of qsnap.docs) await deleteDoc(qd.ref);
     currentRoomId = null;
     alert("すべての相談を削除しました。");
     modalSettings.classList.remove("show");
