@@ -408,6 +408,7 @@
   .sample-pdf-links { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
   .sample-link { font-size: 12.5px; color: #06874a; text-decoration: none; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; padding: 8px 10px; }
   .sample-link:hover { background: #e3f6e9; }
+  .room-naiki-bar { margin: 12px 4px 4px; }
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
   .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
@@ -601,6 +602,23 @@
       <div class="row">
         <button class="btn secondary" id="btnClearData" style="display:none;">この端末をリセット</button>
         <button class="btn primary" id="btnCloseSettings">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 相談から内規を更新モーダル(財務のみ) -->
+  <div class="modal-bg" id="modalRoomNaiki" style="z-index:60;">
+    <div class="modal">
+      <h2>この相談から内規を更新</h2>
+      <p style="font-size:12px;color:#8a93a3;line-height:1.5;">この相談の内容を内規に反映すると、次回から同様の質問にAIが自動で答えられます。下の内規を直接編集するか、「AIで追記案を作成」で提案を追加してください。</p>
+      <div style="margin-bottom:8px;">
+        <button class="btn secondary" id="btnRoomNaikiSuggest">AIで追記案を作成</button>
+      </div>
+      <textarea id="roomNaikiEdit" style="width:100%;min-height:200px;box-sizing:border-box;"></textarea>
+      <div id="roomNaikiSaved" class="nr-saved" style="display:none;"></div>
+      <div class="row">
+        <button class="btn secondary" id="btnRoomNaikiClose">閉じる</button>
+        <button class="btn primary" id="btnRoomNaikiSave">内規を更新</button>
       </div>
     </div>
   </div>
@@ -1282,6 +1300,13 @@ function renderChat() {
     t.innerHTML = '<div class="sender">🤖 AIアシスタント</div><div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
     chatLog.appendChild(t);
   }
+  // 財務は各相談からも内規を更新できる
+  if (cloud.on && cloud.role === "expert") {
+    const bar = document.createElement("div");
+    bar.className = "room-naiki-bar";
+    bar.innerHTML = `<button class="btn secondary" id="btnOpenRoomNaiki" type="button">📋 この相談から内規を更新</button>`;
+    chatLog.appendChild(bar);
+  }
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
@@ -1416,6 +1441,7 @@ chatLog.addEventListener("touchend", () => {
 
 // クリック: 削除 / ルームを開く / 選択肢送信
 chatLog.addEventListener("click", e => {
+  if (e.target.closest("#btnOpenRoomNaiki")) { openRoomNaikiModal(); return; }
   const del = e.target.closest(".room-del");
   if (del) { deleteRoom(del.dataset.del); return; }
   const roomEl = e.target.closest(".room-item");
@@ -1428,6 +1454,50 @@ chatLog.addEventListener("click", e => {
   const btn = e.target.closest(".choice-btn");
   if (!btn || sending) return;
   submitQuestion(btn.textContent);
+});
+
+// 相談から内規を更新(財務・モーダル方式。メッセージ再描画の影響を受けない)
+const modalRoomNaiki = document.getElementById("modalRoomNaiki");
+function openRoomNaikiModal() {
+  document.getElementById("roomNaikiEdit").value = state.naiki || "";
+  document.getElementById("roomNaikiSaved").style.display = "none";
+  modalRoomNaiki.classList.add("show");
+}
+document.getElementById("btnRoomNaikiClose").addEventListener("click", () => modalRoomNaiki.classList.remove("show"));
+modalRoomNaiki.addEventListener("click", e => { if (e.target === modalRoomNaiki) modalRoomNaiki.classList.remove("show"); });
+document.getElementById("btnRoomNaikiSuggest").addEventListener("click", async () => {
+  if (!roomMessages.length) { alert("この相談にはまだやり取りがありません。"); return; }
+  const conv = roomMessages.map(m => {
+    const who = m.role === "user" ? "質問者" : m.role === "expert" ? "専門家" : m.role === "ai" ? "AI" : "システム";
+    return `${who}: ${m.text}`;
+  }).join("\n");
+  const btn = document.getElementById("btnRoomNaikiSuggest");
+  btn.disabled = true;
+  btn.textContent = "作成中...";
+  try {
+    const suggestion = await callClaude({
+      system: NAIKI_SUGGEST_SYSTEM,
+      messages: [{ role: "user", content: `以下はこの相談のやり取りです。この対応をふまえ、内規に追記すべきルールを1項目、箇条書きで提案してください。\n\n${conv}` }]
+    });
+    const add = (suggestion || "").trim();
+    if (add) {
+      const ta = document.getElementById("roomNaikiEdit");
+      const cur = ta.value.replace(/\s+$/, "");
+      ta.value = cur + (cur ? "\n" : "") + add + "\n";
+    }
+  } catch (err) {
+    alert("追記案の作成に失敗しました: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "AIで追記案を作成";
+  }
+});
+document.getElementById("btnRoomNaikiSave").addEventListener("click", () => {
+  state.naiki = document.getElementById("roomNaikiEdit").value;
+  saveState(); saveNaikiShared(); renderNaiki();
+  const el = document.getElementById("roomNaikiSaved");
+  el.textContent = "✓ 内規を更新しました。全員の回答に反映されます。";
+  el.style.display = "block";
 });
 
 let sending = false;
