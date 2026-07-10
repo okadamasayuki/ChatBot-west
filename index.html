@@ -593,19 +593,14 @@
   <div class="modal-bg" id="modalSettings">
     <div class="modal">
       <h2>設定</h2>
-      <p>Anthropic API キーはサーバー(Firebase Functions)側で管理されるため、通常は入力不要です。ログインするだけで利用できます。</p>
-      <p style="margin-bottom:4px;">API キー(任意 / サーバー未設定時のフォールバック用):</p>
-      <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...(通常は空欄でOK)">
-
-      <hr style="border:none;border-top:1px solid #e5e8ee;margin:14px 0;">
       <h2 style="font-size:14px;">☁ アカウント</h2>
       <p>このアプリは常にクラウド(Firebase)に接続し、内規・相談・回答をリアルタイムで共有します。接続状態: <span id="cloudStatusModal" style="font-weight:600;">接続中…</span></p>
       <div id="authInfo" style="font-size:12px;color:#06a04a;margin-bottom:8px;"></div>
       <button class="btn secondary" id="btnAddSamples" style="margin-bottom:12px;">サンプル相談を追加(デモ)</button>
       <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
       <div class="row">
-        <button class="btn secondary" id="btnClearData">APIキーを削除</button>
-        <button class="btn primary" id="btnSaveKey">保存</button>
+        <button class="btn secondary" id="btnClearData">この端末をリセット</button>
+        <button class="btn primary" id="btnCloseSettings">閉じる</button>
       </div>
     </div>
   </div>
@@ -2016,9 +2011,7 @@ document.querySelectorAll("#tabs .tab").forEach(tab => {
 
 /* ================= 設定 ================= */
 const modalSettings = document.getElementById("modalSettings");
-const apiKeyInput = document.getElementById("apiKeyInput");
 function openSettings() {
-  apiKeyInput.value = state.apiKey || "";
   updateAuthUI();
   modalSettings.classList.add("show");
 }
@@ -2036,10 +2029,7 @@ document.getElementById("btnAddSamples").addEventListener("click", async () => {
   }
   btn.disabled = false; btn.textContent = "サンプル相談を追加(デモ)";
 });
-document.getElementById("btnSaveKey").addEventListener("click", () => {
-  state.apiKey = apiKeyInput.value.trim();
-  // 内規・接続設定はアプリからは編集しない(内規はFirebaseコンソール、接続は埋め込み設定)
-  saveState();
+document.getElementById("btnCloseSettings").addEventListener("click", () => {
   modalSettings.classList.remove("show");
 });
 
@@ -2094,7 +2084,7 @@ document.getElementById("btnLogout").addEventListener("click", async () => {
   modalSettings.classList.remove("show");
 });
 document.getElementById("btnClearData").addEventListener("click", () => {
-  if (confirm("この端末の設定(APIキー・Firebase設定・合言葉)とローカル履歴を削除します。クラウド上の共有データは削除されません。よろしいですか?")) {
+  if (confirm("この端末のローカル設定・履歴を削除します。クラウド上の共有データ(相談・内規など)は削除されません。よろしいですか?")) {
     localStorage.removeItem(LS_KEY);
     location.reload();
   }
