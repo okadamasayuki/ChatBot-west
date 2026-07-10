@@ -449,7 +449,8 @@
   .manual-item { background: #fff; border: 1px solid #e5e8ee; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
   .manual-item .mt { font-weight: 600; font-size: 13px; color: #1f2a3a; }
   .manual-item .mc { font-size: 12px; color: #7a8699; margin-top: 4px; white-space: pre-wrap; max-height: 54px; overflow: hidden; }
-  .manual-item .btn { padding: 5px 10px; font-size: 12px; margin-top: 8px; }
+  .manual-item .btn { padding: 5px 10px; font-size: 12px; }
+  .manual-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .manual-empty { text-align: center; color: #7a8699; font-size: 12px; padding: 20px 0; }
 
   /* ===== Modal ===== */
@@ -632,6 +633,17 @@
       <div class="row">
         <button class="btn secondary" id="btnRoomNaikiClose">閉じる</button>
         <button class="btn primary" id="btnRoomNaikiSave">内規を更新</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- マニュアルプレビューモーダル(財務のみ) -->
+  <div class="modal-bg" id="modalManualPreview" style="z-index:60;">
+    <div class="modal">
+      <h2 id="manualPreviewTitle">マニュアル</h2>
+      <div id="manualPreviewBody" style="white-space:pre-wrap;font-size:13px;line-height:1.7;max-height:60dvh;overflow-y:auto;background:#f7f8fa;border:1px solid #e5e8ee;border-radius:8px;padding:12px;"></div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn primary" id="btnManualPreviewClose">閉じる</button>
       </div>
     </div>
   </div>
@@ -1976,7 +1988,10 @@ function renderManual() {
     div.className = "manual-item";
     div.innerHTML = `<div class="mt">${escapeHtml(m.title || "無題")}</div>
       <div class="mc">${escapeHtml(snippet(m.content, 120))}</div>
-      <button class="btn secondary" data-del="${m.id}">削除</button>`;
+      <div class="manual-actions">
+        <button class="btn secondary" data-preview="${m.id}">👁 プレビュー</button>
+        <button class="btn secondary" data-del="${m.id}">削除</button>
+      </div>`;
     list.appendChild(div);
   });
 }
@@ -2026,9 +2041,23 @@ document.getElementById("manualFile").addEventListener("change", async e => {
   }
 });
 document.getElementById("manualList").addEventListener("click", e => {
-  const b = e.target.closest("button[data-del]");
-  if (b) deleteManual(b.dataset.del);
+  const del = e.target.closest("button[data-del]");
+  if (del) { deleteManual(del.dataset.del); return; }
+  const prev = e.target.closest("button[data-preview]");
+  if (prev) {
+    const m = manuals.find(x => x.id === prev.dataset.preview);
+    if (m) openManualPreview(m);
+  }
 });
+// マニュアルの中身(抽出テキスト)をプレビュー
+const modalManualPreview = document.getElementById("modalManualPreview");
+function openManualPreview(m) {
+  document.getElementById("manualPreviewTitle").textContent = m.title || "無題";
+  document.getElementById("manualPreviewBody").textContent = m.content || "(内容なし)";
+  modalManualPreview.classList.add("show");
+}
+document.getElementById("btnManualPreviewClose").addEventListener("click", () => modalManualPreview.classList.remove("show"));
+modalManualPreview.addEventListener("click", e => { if (e.target === modalManualPreview) modalManualPreview.classList.remove("show"); });
 
 // サンプルマニュアルをクリックで追加(PDFを取得→文字抽出→追加。固定IDで重複なし)
 async function addSampleManual(slug, title) {
