@@ -630,20 +630,30 @@
   <!-- ログインモーダル -->
   <div class="modal-bg" id="modalLogin" style="z-index:60;">
     <div class="modal">
-      <h2>担当者ログイン</h2>
-      <p>チーム共有を利用するにはログインが必要です。管理者に発行されたアカウントでログインしてください。</p>
-      <input type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="username">
-      <input type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password">
-      <input type="text" id="loginNickname" placeholder="ニックネーム(新規登録時に入力)" autocomplete="nickname">
-      <div style="margin-bottom:10px;">
-        <div style="font-size:12px;color:#555;margin-bottom:6px;">役割(新規登録・初回ログイン時に選択):</div>
-        <label style="display:block;font-size:13px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="role" value="questioner" checked> 担当者(質問のみ)</label>
-        <label style="display:block;font-size:13px;cursor:pointer;"><input type="radio" name="role" value="expert"> 財務(会計の専門家)</label>
+      <h2 id="authTitle">会計相談チャット</h2>
+
+      <!-- ステップ1: 新規登録 or ログインを選ぶ -->
+      <div id="authChooser">
+        <p>ご利用にはアカウントが必要です。初めての方は「新規登録」、登録済みの方は「ログイン」を選んでください。</p>
+        <button class="btn primary" id="btnChooseLogin" style="width:100%;margin-bottom:8px;">ログイン</button>
+        <button class="btn secondary" id="btnChooseSignup" style="width:100%;">新規登録</button>
       </div>
-      <div id="loginError" style="color:#c0392b;font-size:12px;margin-bottom:10px;display:none;"></div>
-      <div class="row">
-        <button class="btn secondary" id="btnSignup">新規登録</button>
-        <button class="btn primary" id="btnLogin">ログイン</button>
+
+      <!-- ステップ2: 入力フォーム -->
+      <div id="authForm" style="display:none;">
+        <input type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="username">
+        <input type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password">
+        <input type="text" id="loginNickname" placeholder="ニックネーム" autocomplete="nickname">
+        <div id="roleSelect" style="margin-bottom:10px;">
+          <div style="font-size:12px;color:#555;margin-bottom:6px;">役割:</div>
+          <label style="display:block;font-size:13px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="role" value="questioner" checked> 担当者(質問のみ)</label>
+          <label style="display:block;font-size:13px;cursor:pointer;"><input type="radio" name="role" value="expert"> 財務(会計の専門家)</label>
+        </div>
+        <div id="loginError" style="color:#c0392b;font-size:12px;margin-bottom:10px;display:none;"></div>
+        <div class="row">
+          <button class="btn secondary" id="btnAuthBack">戻る</button>
+          <button class="btn primary" id="btnAuthSubmit">ログイン</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2118,8 +2128,28 @@ document.getElementById("btnCloseSettings").addEventListener("click", () => {
 
 /* ================= ログイン (Firebase Authentication) ================= */
 const modalLogin = document.getElementById("modalLogin");
-function openLogin() {
+let authMode = "login"; // "login" | "signup"
+function showAuthChooser() {
+  document.getElementById("authChooser").style.display = "";
+  document.getElementById("authForm").style.display = "none";
+  document.getElementById("authTitle").textContent = "会計相談チャット";
   document.getElementById("loginError").style.display = "none";
+}
+function showAuthForm(mode) {
+  authMode = mode;
+  document.getElementById("authChooser").style.display = "none";
+  document.getElementById("authForm").style.display = "";
+  document.getElementById("loginError").style.display = "none";
+  const isSignup = mode === "signup";
+  document.getElementById("authTitle").textContent = isSignup ? "新規登録" : "ログイン";
+  document.getElementById("loginNickname").style.display = isSignup ? "" : "none";
+  document.getElementById("roleSelect").style.display = isSignup ? "" : "none";
+  document.getElementById("btnAuthSubmit").textContent = isSignup ? "新規登録" : "ログイン";
+  const em = document.getElementById("loginEmail");
+  if (em) em.focus();
+}
+function openLogin() {
+  showAuthChooser();
   modalLogin.classList.add("show");
 }
 function closeLogin() {
@@ -2160,10 +2190,12 @@ async function doAuth(kind) {
     showLoginError(authErrMsg(e));
   }
 }
-document.getElementById("btnLogin").addEventListener("click", () => doAuth("login"));
-document.getElementById("btnSignup").addEventListener("click", () => doAuth("signup"));
+document.getElementById("btnChooseLogin").addEventListener("click", () => showAuthForm("login"));
+document.getElementById("btnChooseSignup").addEventListener("click", () => showAuthForm("signup"));
+document.getElementById("btnAuthBack").addEventListener("click", showAuthChooser);
+document.getElementById("btnAuthSubmit").addEventListener("click", () => doAuth(authMode));
 document.getElementById("loginPassword").addEventListener("keydown", e => {
-  if (e.key === "Enter") { e.preventDefault(); doAuth("login"); }
+  if (e.key === "Enter") { e.preventDefault(); doAuth(authMode); }
 });
 document.getElementById("btnLogout").addEventListener("click", async () => {
   if (cloud.auth) { try { await cloud.authMod.signOut(cloud.auth); } catch (e) {} }
