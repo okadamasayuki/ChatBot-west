@@ -165,16 +165,17 @@
   .room-empty { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 20px; line-height: 1.7; }
   .room-sort-bar {
     position: sticky; top: 0; z-index: 2;
-    display: flex; justify-content: flex-end; align-items: center; gap: 6px;
-    padding: 6px 10px; flex: none;
+    display: flex; justify-content: flex-end; align-items: center; gap: 4px;
+    padding: 5px 10px; flex: none;
     background: #fafbfc; border-bottom: 1px solid #eef0f4;
   }
-  .room-sort-bar .rs-label { font-size: 11px; color: #7a8699; }
-  .room-sort-bar select {
-    font-size: 12px; padding: 4px 8px;
-    border: 1px solid #d4d9e2; border-radius: 8px;
-    background: #fff; color: #4a5568;
+  .room-sort-bar .sc {
+    font-size: 10.5px; padding: 3px 9px;
+    border: 1px solid #d4d9e2; border-radius: 999px;
+    background: #fff; color: #5a6a80;
+    cursor: pointer; flex-shrink: 0;
   }
+  .room-sort-bar .sc.active { background: #06c755; border-color: #06c755; color: #fff; }
 
   /* ===== Chat (questioner) ===== */
   #chatLog {
@@ -1402,24 +1403,23 @@ function renderRoomList() {
   // 一覧に存在しない相談は選択から外す(削除された等)
   selectedRooms = new Set([...selectedRooms].filter(id => list.some(r => r.id === id)));
 
-  // 並び替えセレクタ(一覧の上部に固定)。財務は複数選択→社内ルール更新のボタンもここに出る
+  // 並び替えチップ(一覧の上部に固定)。財務は複数選択→社内ルール更新のボタンもここに出る
   const sortBar = document.createElement("div");
   sortBar.className = "room-sort-bar";
   sortBar.innerHTML =
     (isExpertList ? `<button class="btn secondary" id="roomBatchNaiki" type="button" style="display:none;margin-right:auto;font-size:12px;padding:6px 10px;"></button>` : "") +
-    `<span class="rs-label">並び替え</span>
-    <select title="並び替え">
-      <option value="new">新しい順</option>
-      <option value="old">古い順</option>
-      <option value="status">ステータス順</option>
-    </select>`;
-  const sel = sortBar.querySelector("select");
-  sel.value = roomSort;
-  sel.addEventListener("change", () => {
-    roomSort = sel.value;
-    try { localStorage.setItem("roomSort", roomSort); } catch (e) {}
-    roomListScrollTop = 0; // 並び順が変わるので先頭から表示
-    renderRoomList();
+    `<button type="button" class="sc" data-sort="new">新しい順</button>
+    <button type="button" class="sc" data-sort="old">古い順</button>
+    <button type="button" class="sc" data-sort="status">ステータス順</button>`;
+  sortBar.querySelectorAll(".sc").forEach(b => {
+    b.classList.toggle("active", b.dataset.sort === roomSort);
+    b.addEventListener("click", () => {
+      if (roomSort === b.dataset.sort) return;
+      roomSort = b.dataset.sort;
+      try { localStorage.setItem("roomSort", roomSort); } catch (e) {}
+      roomListScrollTop = 0; // 並び順が変わるので先頭から表示
+      renderRoomList();
+    });
   });
   chatLog.appendChild(sortBar);
   updateRoomBatchBtn();
