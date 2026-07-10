@@ -412,6 +412,9 @@
   .sample-link:hover { background: #e3f6e9; }
   .sample-row { display: flex; gap: 6px; align-items: stretch; }
   .sample-row .sample-link { flex: 1; }
+  .sample-add { flex: 1; text-align: left; font-size: 12.5px; color: #06874a; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; padding: 8px 10px; cursor: pointer; font-family: inherit; }
+  .sample-add:hover { background: #e3f6e9; }
+  .sample-add:disabled { opacity: .6; cursor: default; }
   .sample-dl { display: flex; align-items: center; justify-content: center; width: 44px; flex-shrink: 0; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; color: #06874a; text-decoration: none; font-size: 15px; }
   .sample-dl:hover { background: #e3f6e9; }
   .room-naiki-bar { margin: 12px 4px 4px; }
@@ -599,14 +602,14 @@
       <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
 
       <div class="sample-pdf" style="margin-top:4px;">
-        <div class="nr-title">📄 サンプルマニュアル(PDF)</div>
-        <div class="nr-hint">タイトルをタップするとPDFをプレビュー(中身を確認)、⬇で保存できます。マニュアルタブの「ファイルを選択」からアップロードするとAIが参照します。</div>
-        <div class="sample-pdf-links">
-          <div class="sample-row"><a class="sample-link" href="samples/manuals/keihi.pdf" target="_blank" rel="noopener">📄 経費精算マニュアル</a><a class="sample-dl" href="samples/manuals/keihi.pdf" download="経費精算マニュアル.pdf" title="保存">⬇</a></div>
-          <div class="sample-row"><a class="sample-link" href="samples/manuals/kotei.pdf" target="_blank" rel="noopener">📄 固定資産管理マニュアル</a><a class="sample-dl" href="samples/manuals/kotei.pdf" download="固定資産管理マニュアル.pdf" title="保存">⬇</a></div>
-          <div class="sample-row"><a class="sample-link" href="samples/manuals/kosai.pdf" target="_blank" rel="noopener">📄 交際費・会議費マニュアル</a><a class="sample-dl" href="samples/manuals/kosai.pdf" download="交際費・会議費マニュアル.pdf" title="保存">⬇</a></div>
-          <div class="sample-row"><a class="sample-link" href="samples/manuals/invoice.pdf" target="_blank" rel="noopener">📄 インボイス・消費税マニュアル</a><a class="sample-dl" href="samples/manuals/invoice.pdf" download="インボイス・消費税マニュアル.pdf" title="保存">⬇</a></div>
-          <div class="sample-row"><a class="sample-link" href="samples/manuals/kyuyo.pdf" target="_blank" rel="noopener">📄 給与・社会保険マニュアル</a><a class="sample-dl" href="samples/manuals/kyuyo.pdf" download="給与・社会保険マニュアル.pdf" title="保存">⬇</a></div>
+        <div class="nr-title">📄 サンプルマニュアル</div>
+        <div class="nr-hint">クリックするとマニュアルに追加され、AIが参照します。👁でPDFの中身をプレビューできます。</div>
+        <div class="sample-pdf-links" id="sampleManualList">
+          <div class="sample-row"><button class="sample-add" data-manual="keihi" data-title="経費精算マニュアル">📄 経費精算マニュアル を追加</button><a class="sample-dl" href="samples/manuals/keihi.pdf" target="_blank" rel="noopener" title="プレビュー">👁</a></div>
+          <div class="sample-row"><button class="sample-add" data-manual="kotei" data-title="固定資産管理マニュアル">📄 固定資産管理マニュアル を追加</button><a class="sample-dl" href="samples/manuals/kotei.pdf" target="_blank" rel="noopener" title="プレビュー">👁</a></div>
+          <div class="sample-row"><button class="sample-add" data-manual="kosai" data-title="交際費・会議費マニュアル">📄 交際費・会議費マニュアル を追加</button><a class="sample-dl" href="samples/manuals/kosai.pdf" target="_blank" rel="noopener" title="プレビュー">👁</a></div>
+          <div class="sample-row"><button class="sample-add" data-manual="invoice" data-title="インボイス・消費税マニュアル">📄 インボイス・消費税マニュアル を追加</button><a class="sample-dl" href="samples/manuals/invoice.pdf" target="_blank" rel="noopener" title="プレビュー">👁</a></div>
+          <div class="sample-row"><button class="sample-add" data-manual="kyuyo" data-title="給与・社会保険マニュアル">📄 給与・社会保険マニュアル を追加</button><a class="sample-dl" href="samples/manuals/kyuyo.pdf" target="_blank" rel="noopener" title="プレビュー">👁</a></div>
         </div>
       </div>
       <div class="row">
@@ -2025,6 +2028,39 @@ document.getElementById("manualFile").addEventListener("change", async e => {
 document.getElementById("manualList").addEventListener("click", e => {
   const b = e.target.closest("button[data-del]");
   if (b) deleteManual(b.dataset.del);
+});
+
+// サンプルマニュアルをクリックで追加(PDFを取得→文字抽出→追加。固定IDで重複なし)
+async function addSampleManual(slug, title) {
+  const resp = await fetch(`samples/manuals/${slug}.pdf`);
+  if (!resp.ok) throw new Error("PDFを取得できませんでした");
+  const text = await extractPdfText(await resp.arrayBuffer());
+  if (!text) throw new Error("PDFから文字を抽出できませんでした");
+  const id = `sample-manual-${slug}`;
+  const m = { id, title, content: text, updatedAt: nowIso() };
+  if (cloud.on) {
+    await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "manuals", id), m);
+  } else {
+    const i = manuals.findIndex(x => x.id === id);
+    if (i >= 0) manuals[i] = m; else manuals.push(m);
+    renderManual();
+  }
+}
+document.getElementById("sampleManualList").addEventListener("click", async e => {
+  const btn = e.target.closest(".sample-add");
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "追加中...";
+  try {
+    await addSampleManual(btn.dataset.manual, btn.dataset.title);
+    btn.textContent = "✓ 追加しました";
+    setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 1600);
+  } catch (err) {
+    alert("追加に失敗しました: " + err.message);
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
 });
 
 // PDFからテキストを抽出(pdf.js を動的読み込み)
