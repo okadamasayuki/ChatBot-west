@@ -2237,7 +2237,7 @@ document.getElementById("btnAddSamples").addEventListener("click", async () => {
   btn.disabled = true; btn.textContent = "追加中...";
   try {
     const n = await addSampleConsultations();
-    alert(n > 0 ? `サンプル相談を${n}件追加しました。` : "サンプルは既に追加済みのため、メッセージの表示順(時刻)を修復しました。");
+    alert(n > 0 ? `サンプル相談を${n}件追加しました。` : "サンプルは既に追加済みのため、重複メッセージの削除と表示順(時刻)の修復を行いました。");
     modalSettings.classList.remove("show");
   } catch (e) {
     alert("追加に失敗しました: " + (e.message || e));
@@ -2467,24 +2467,25 @@ async function addSampleConsultations() {
   for (const e of exampleData()) {
     e.room.lastText = e.msgs[e.msgs.length - 1].text;
     if (rooms.some(r => r.id === e.room.id)) {
-      // 既存サンプル: メッセージの時刻を過去の連番に揃え直す(不正/未来の時刻で順番が乱れるのを修復)
-      for (const msg of e.msgs) {
-        await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", e.room.id, "messages", msg.id), msg, { merge: true });
-      }
-      // 旧ID形式(ex4m1など)で残った同内容の重複メッセージを削除
-      const oldIdPat = new RegExp("^" + e.room.id + "m\\d+$");
+      // 既存サンプル: 正規の状態にリセットする。
+      // 正規ID以外のメッセージ(旧ID形式の残骸や、テストで追加された重複)をすべて削除し、
+      // 正規のメッセージ一式を書き直す(時刻も過去の連番に揃う)。
+      const keep = new Set(e.msgs.map(m => m.id));
       const msnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "rooms", e.room.id, "messages"));
       for (const d of msnap.docs) {
-        if (oldIdPat.test(d.id)) await deleteDoc(d.ref);
+        if (!keep.has(d.id)) await deleteDoc(d.ref);
       }
-      await cloud.fs.setDoc(cloudRoomDoc(e.room.id), { createdAt: e.room.createdAt, lastTs: e.room.lastTs, lastText: e.room.lastText }, { merge: true });
-      // 旧ID形式の案件(exc4など。現行はcex4形式)が重複していれば削除
+      for (const msg of e.msgs) {
+        await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", e.room.id, "messages", msg.id), msg);
+      }
+      await cloud.fs.setDoc(cloudRoomDoc(e.room.id), { title: e.room.title, createdAt: e.room.createdAt, lastTs: e.room.lastTs, lastText: e.room.lastText }, { merge: true });
+      // 案件も正規化: このサンプル相談に紐づく正規ID以外の案件(旧ID形式など)を削除
       if (e.caseObj) {
-        const oldCaseId = "exc" + e.room.id.replace(/^ex/, "");
-        if (oldCaseId !== e.caseObj.id && state.cases.some(c => c.id === oldCaseId)) {
-          await deleteDoc(doc(cloud.db, "workspaces", cloud.wid, "cases", oldCaseId));
+        for (const c of state.cases) {
+          if (c.roomId === e.room.id && c.id !== e.caseObj.id) {
+            await deleteDoc(doc(cloud.db, "workspaces", cloud.wid, "cases", c.id));
+          }
         }
-        // 現行IDの案件がまだ無ければ作成(旧IDのみ存在していた場合の補完)
         if (!state.cases.some(c => c.id === e.caseObj.id)) {
           await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "cases", e.caseObj.id), e.caseObj);
         }
