@@ -337,7 +337,7 @@
       <div class="warn">⚠ このアプリはブラウザから直接 Claude API を呼び出します。API キーはこの端末の localStorage にのみ保存されますが、共有端末では使用しないでください。</div>
       <p>Anthropic API キー(<code>sk-ant-...</code>)を入力してください。</p>
       <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...">
-      <p style="margin-top:4px;">内規(社内ルール) — 回答時にAIが参照します。共有ONの場合はチーム全員に反映されます。</p>
+      <p id="naikiNote" style="margin-top:4px;">内規(社内ルール) — チーム共通の1つを運用します。回答時にAIが参照し、共有ONの場合はチーム全員に反映されます。</p>
       <textarea id="naikiInput" placeholder="## 会計処理ルール&#10;&#10;- 減価償却は定額法とする。"></textarea>
 
       <hr style="border:none;border-top:1px solid #e5e8ee;margin:14px 0;">
@@ -1015,18 +1015,32 @@ const apiKeyInput = document.getElementById("apiKeyInput");
 const naikiInput = document.getElementById("naikiInput");
 const firebaseInput = document.getElementById("firebaseInput");
 const workspaceInput = document.getElementById("workspaceInput");
+function naikiEditable() {
+  // 共有ON時は財務(専門家)のみ編集可。ローカル単体利用時は誰でも編集可。
+  return !(cloud.on && cloud.role !== "expert");
+}
 function openSettings() {
   apiKeyInput.value = state.apiKey || "";
   naikiInput.value = state.naiki || "";
   firebaseInput.value = state.firebaseConfig || "";
   workspaceInput.value = state.workspaceCode || "";
+  const editable = naikiEditable();
+  naikiInput.readOnly = !editable;
+  naikiInput.style.background = editable ? "" : "#f3f4f6";
+  const note = document.getElementById("naikiNote");
+  if (note) {
+    note.textContent = editable
+      ? "内規(社内ルール) — チーム共通の1つを運用します。回答時にAIが参照し、共有ONの場合はチーム全員に反映されます。"
+      : "内規(社内ルール) — 閲覧のみ。編集は財務(会計の専門家)が行います。";
+  }
   updateAuthUI();
   modalSettings.classList.add("show");
 }
 document.getElementById("btnSettings").addEventListener("click", openSettings);
 document.getElementById("btnSaveKey").addEventListener("click", () => {
   state.apiKey = apiKeyInput.value.trim();
-  state.naiki = naikiInput.value;
+  const editable = naikiEditable();
+  if (editable) state.naiki = naikiInput.value; // 財務のみ内規を更新
   const cloudChanged = (state.firebaseConfig !== firebaseInput.value.trim()) ||
                        (state.workspaceCode !== workspaceInput.value.trim());
   state.firebaseConfig = firebaseInput.value.trim();
@@ -1035,7 +1049,7 @@ document.getElementById("btnSaveKey").addEventListener("click", () => {
   modalSettings.classList.remove("show");
   if (cloudChanged) {
     location.reload();        // 接続設定が変わったら再読み込みして繋ぎ直す(Firebase初期化を一度だけに)
-  } else {
+  } else if (editable) {
     saveNaikiShared();        // 内規のみ変更 → 共有中なら反映
   }
 });
