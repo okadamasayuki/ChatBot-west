@@ -1550,8 +1550,7 @@ function renderCase(c) {
     ? '<span class="q-label done">✓ 回答済み</span>'
     : '<span class="q-label">要対応</span>';
 
-  let html = `${label}<div class="q-text">${escapeHtml(c.question)}</div>
-    <div class="reason">💡 AIの判断: ${escapeHtml(c.reason)}</div>`;
+  let html = `${label}<div class="q-text">${escapeHtml(c.question)}</div>`;
 
   if (c.roomId) {
     html += `<div class="actions" style="margin-top:8px;">
