@@ -504,6 +504,10 @@
   .modal textarea:focus { border-color: #06c755; }
   .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
   .warn { background: #fff4e5; border: 1px solid #f0c98a; border-radius: 8px; padding: 8px 10px; font-size: 11px; color: #8a5a00; line-height: 1.5; margin-bottom: 12px; }
+  /* スマホ(iOS)で入力欄フォーカス時に自動ズームしないよう、タッチ端末では16px以上にする */
+  @media (pointer: coarse) {
+    input, textarea, select { font-size: 16px !important; }
+  }
 </style>
 </head>
 <body>
