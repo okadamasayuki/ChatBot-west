@@ -149,15 +149,6 @@
   }
   .room-item.swipeable { touch-action: pan-y; }
   .room-item:hover { background: #f5f7fa; }
-  .room-avatar {
-    width: 34px; height: 34px;
-    border-radius: 50%;
-    background: #8cabd8;
-    color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px;
-    flex-shrink: 0;
-  }
   .room-main { flex: 1; min-width: 0; }
   .room-title {
     font-size: 13.5px; font-weight: 600; color: #1f2a3a;
@@ -1166,6 +1157,7 @@ function canDeleteRoom(r) { return !(cloud.on && cloud.role === "expert") && isM
 function snippet(t, n) { t = (t || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) + "…" : t; }
 function fmtDate(iso) {
   const d = new Date(iso), now = new Date();
+  if (isNaN(d.getTime())) return ""; // 不正な日時は表示しない(NaN/NaN対策)
   if (d.toDateString() === now.toDateString()) return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
@@ -1299,7 +1291,6 @@ function renderRoomList() {
     row.innerHTML =
       (mine ? `<button class="room-del" data-del="${r.id}">削除</button>` : "") +
       `<div class="room-item${mine ? " swipeable" : ""}" data-room="${r.id}">
-        <div class="room-avatar">💬</div>
         <div class="room-main">
           <div class="room-title">${escapeHtml(r.title || "相談")}</div>
           <div class="room-preview">${escapeHtml(snippet(r.lastText, 40) || "(メッセージなし)")}</div>
@@ -2361,7 +2352,8 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 /* ================= サンプルデータ(デモ用) ================= */
 function exampleData() {
   const ESC = "ご質問ありがとうございます。この内容はBAによる確認が必要なため、BAにおつなぎしました。回答までしばらくお待ちください。";
-  const ts = (n) => `2026-07-10T${String(n).padStart(2, "0")}:00:00.000Z`;
+  // 起点から n 時間後(24時間を超えたら翌日に繰り上げ。"T24:00"のような不正な日時を作らない)
+  const ts = (n) => new Date(Date.UTC(2026, 6, 9, n, 0, 0)).toISOString();
   let hour = 0;
 
   const ai = (id, title, q, a) => {
