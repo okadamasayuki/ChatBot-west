@@ -1546,11 +1546,53 @@ window.addEventListener("popstate", (e) => {
   roomHistActive = !!room;
 });
 
+// LINE風のスライド遷移(一覧⇄チャット)。
+// 直前の画面のスナップショット(ghost)を重ね、パネルを横にスライドさせて滑らかに切り替える
+const REDUCED_MOTION = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+function makePanelGhost(panel, z, bg) {
+  const r = panel.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  const g = panel.cloneNode(true);
+  g.removeAttribute("id");
+  g.querySelectorAll("[id]").forEach(el => el.removeAttribute("id")); // idの重複を避ける
+  g.classList.add("active");
+  g.style.cssText += `;position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;margin:0;z-index:${z};pointer-events:none;display:flex;${bg ? "background:" + bg + ";" : ""}`;
+  // スクロール位置はcloneへ引き継がれないため合わせる(一覧・チャットログ)
+  const src = [...panel.children];
+  const dst = [...g.children];
+  src.forEach((el, i) => { if (el.scrollTop && dst[i]) dst[i].scrollTop = el.scrollTop; });
+  document.body.appendChild(g);
+  return g;
+}
+// チャットを右からスライドイン(下に一覧のスナップショットを敷く)
+function slideInChat(panel, ghost) {
+  panel.style.position = "relative";
+  panel.style.zIndex = "30";
+  panel.style.background = "#8cabd8";
+  panel.style.transition = "none";
+  panel.style.transform = "translateX(100%)";
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    panel.style.transition = "transform .24s ease-out";
+    panel.style.transform = "";
+    setTimeout(() => {
+      panel.style.position = ""; panel.style.zIndex = ""; panel.style.background = "";
+      panel.style.transition = ""; panel.style.transform = "";
+      ghost.remove();
+    }, 270);
+  }));
+}
+// 一覧⇄チャットの遷移でアニメーションしてよい状態か(スワイプ中はスワイプの動きを優先)
+function canSlideChat(panel) {
+  return !REDUCED_MOTION && !!panel && panel.classList.contains("active") && !panel.style.transform;
+}
+
 // 新規ルーム作成
 // 新規相談: この時点では保存せず、最初のメッセージ送信時に保存する(空の相談を残さない)
 function createRoom() {
   if (cloud.configured && !cloud.user) { openLogin(); return; }
   if (cloud.on && cloud.role === "expert") return; // 財務は新規相談を作成できない
+  const panel = document.getElementById("panel-chat");
+  const ghost = (canSlideChat(panel) && !currentRoomId) ? makePanelGhost(panel, 20, "") : null;
   roomFilter = "mine";
   if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   pendingRoom = {
@@ -1561,12 +1603,16 @@ function createRoom() {
   roomMessages = [];
   renderChat();
   historyPushEntry();
+  if (ghost) slideInChat(panel, ghost);
 }
 
-// ルームを開く(履歴に積む)
+// ルームを開く(履歴に積む。一覧からはLINE風に右からスライドイン)
 function openRoom(id) {
+  const panel = document.getElementById("panel-chat");
+  const ghost = (canSlideChat(panel) && !currentRoomId) ? makePanelGhost(panel, 20, "") : null;
   openRoomView(id);
   historyPushEntry();
+  if (ghost) slideInChat(panel, ghost);
 }
 // ルームを表示する(履歴操作なし。popstateからも使う)
 function openRoomView(id) {
@@ -1589,12 +1635,22 @@ function backToRooms() {
   closeRoomView();
 }
 function closeRoomView() {
+  // チャットのスナップショットを上に重ね、右へスライドアウトさせて一覧を見せる(LINE風)
+  const panel = document.getElementById("panel-chat");
+  const ghost = (canSlideChat(panel) && currentRoomId) ? makePanelGhost(panel, 40, "#8cabd8") : null;
   pendingRoom = null; // 未送信の新規相談は破棄(空の相談を残さない)
   roomOrigin = null;
   currentRoomId = null;
   if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   roomMessages = [];
   renderChat();
+  if (ghost) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      ghost.style.transition = "transform .24s ease-in";
+      ghost.style.transform = "translateX(100%)";
+      setTimeout(() => ghost.remove(), 270);
+    }));
+  }
 }
 
 // チャット(相談)表示中のページ全体スワイプ(指へ追従してほぼ真横に動く):
