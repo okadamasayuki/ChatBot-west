@@ -320,6 +320,9 @@
   .case .opt:hover { border-color: #06c755; }
   .case .opt.selected { border-color: #06c755; background: #f0fbf4; }
   .case .opt input { margin-top: 3px; }
+  .case .opt-custom { cursor: default; }
+  .case .opt-custom-body { flex: 1; min-width: 0; }
+  .case .opt-custom-label { font-size: 13px; margin-bottom: 6px; }
   .case .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .btn {
     border: none;
@@ -1527,7 +1530,7 @@ function renderCase(c) {
     html += `<div class="handler-row"><button class="btn secondary tiny" data-action="set-handler" data-case="${c.id}">🧑‍💼 対応者として登録</button></div>`;
   }
 
-  // 選択肢
+  // 選択肢(AI提案 + 自由入力を同じカード形式で並べる)
   html += `<div style="font-size:12px;color:#555;margin-bottom:6px;">回答の方針を選択してください:</div>`;
   c.options.forEach((opt, i) => {
     const sel = c.selectedOption === i ? " selected" : "";
@@ -1537,12 +1540,16 @@ function renderCase(c) {
       <span>${escapeHtml(opt)}</span>
     </label>`;
   });
-
-  // 音声/自由入力で回答方針を指定
-  html += `<div style="font-size:12px;color:#555;margin:10px 0 6px;">または、回答方針を自由に入力(音声入力できます):</div>
-    <textarea class="custom-dir" data-case="${c.id}" placeholder="例: 消耗品費で処理してよいと案内。ただし〜の点は注意、と伝える"></textarea>
-    <div class="actions">
-      <button class="btn mic-btn" data-mic="${c.id}" type="button">🎤 音声入力</button>
+  // 自由入力も選択肢と同じカード形式(音声入力可)
+  html += `<div class="opt opt-custom" data-case="${c.id}" data-opt="custom">
+      <input type="radio" name="opt-${c.id}">
+      <span class="opt-custom-body">
+        <div class="opt-custom-label">自由に入力する(音声入力できます)</div>
+        <textarea class="custom-dir" data-case="${c.id}" placeholder="例: 消耗品費で処理してよいと案内。ただし〜の点は注意、と伝える"></textarea>
+        <div class="actions" style="margin-top:8px;margin-bottom:0;">
+          <button class="btn mic-btn" data-mic="${c.id}" type="button">🎤 音声入力</button>
+        </div>
+      </span>
     </div>`;
 
   html += `<div class="actions">
@@ -1561,6 +1568,18 @@ function renderCase(c) {
 
   div.innerHTML = html;
   return div;
+}
+
+// 自由入力カードを「選択済み」として見た目だけ反映(再描画しない)
+function markCustomSelected(optEl) {
+  const card = optEl.closest(".case");
+  if (!card) return;
+  card.querySelectorAll(".opt").forEach(o => {
+    const on = (o === optEl);
+    o.classList.toggle("selected", on);
+    const r = o.querySelector('input[type="radio"]');
+    if (r) r.checked = on;
+  });
 }
 
 let activeRec = null; // 音声認識の実行中インスタンス
@@ -1602,9 +1621,16 @@ expertList.addEventListener("click", async e => {
   const optEl = e.target.closest(".opt");
   if (optEl) {
     const c = state.cases.find(x => x.id === optEl.dataset.case);
-    if (c && c.status !== "answered") {
-      updateCase(c, { selectedOption: Number(optEl.dataset.opt) });
+    if (!c || c.status === "answered") return;
+    if (optEl.dataset.opt === "custom") {
+      // 自由入力カード: 入力欄/マイクのクリックはそれぞれの動作に任せる
+      if (e.target.closest(".custom-dir, .mic-btn")) return;
+      markCustomSelected(optEl); // 再描画せず見た目だけ選択(入力中の文字を消さない)
+      const ta = optEl.querySelector(".custom-dir");
+      if (ta) ta.focus();
+      return;
     }
+    updateCase(c, { selectedOption: Number(optEl.dataset.opt) });
     return;
   }
   const mic = e.target.closest(".mic-btn");
@@ -1626,7 +1652,7 @@ expertList.addEventListener("click", async e => {
     // 回答方針: 音声/自由入力があればそれを優先、なければ選択した選択肢
     const dirEl = expertList.querySelector(`textarea.custom-dir[data-case="${c.id}"]`);
     const custom = dirEl ? dirEl.value.trim() : "";
-    const direction = custom || (c.selectedOption !== null ? c.options[c.selectedOption] : "");
+    const direction = custom || (typeof c.selectedOption === "number" ? c.options[c.selectedOption] : "");
     if (!direction) { alert("回答方針を選択するか、音声/テキストで入力してください。"); return; }
     if (activeRec) { try { activeRec.stop(); } catch (e) {} activeRec = null; }
     btn.disabled = true;
@@ -1720,6 +1746,10 @@ expertList.addEventListener("click", async e => {
 // 編集中(回答案 / 自由入力)はスナップショット再描画で消さない
 expertList.addEventListener("focusin", e => {
   if (e.target.matches("textarea.draft, textarea.custom-dir, textarea.naiki-edit-inline")) expertEditing = e.target.dataset.case;
+  if (e.target.matches("textarea.custom-dir")) {
+    const opt = e.target.closest(".opt");
+    if (opt) markCustomSelected(opt); // 自由入力に触れたら選択状態にする
+  }
 });
 expertList.addEventListener("input", e => {
   if (e.target.matches("textarea.draft")) {
