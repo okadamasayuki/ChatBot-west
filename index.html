@@ -2017,9 +2017,10 @@ document.getElementById("manualFile").addEventListener("change", async e => {
     if (isPdf) {
       setStatus("PDFを読み込み中...", true);
       const buf = await f.arrayBuffer();
+      // 先にbase64化する(pdf.jsに渡すとバッファがworkerへ転送され使えなくなるため)
+      pdfData = buf.byteLength <= PDF_KEEP_LIMIT ? bufToB64(buf) : null; // 大きいPDFはテキストプレビューにフォールバック
       text = await extractPdfText(buf);
       if (!text) { setStatus("PDFから文字を抽出できませんでした(画像だけのスキャンPDFの可能性)。", false); e.target.value = ""; return; }
-      if (buf.byteLength <= PDF_KEEP_LIMIT) pdfData = bufToB64(buf); // 大きいPDFはテキストプレビューにフォールバック
     } else {
       text = await f.text();
     }
@@ -2144,11 +2145,13 @@ async function addSampleManual(slug, title) {
   const resp = await fetch(`samples/manuals/${slug}.pdf`);
   if (!resp.ok) throw new Error("PDFを取得できませんでした");
   const buf = await resp.arrayBuffer();
+  // 先にbase64化する(pdf.jsに渡すとバッファがworkerへ転送され使えなくなるため)
+  const pdfData = buf.byteLength <= PDF_KEEP_LIMIT ? bufToB64(buf) : null;
   const text = await extractPdfText(buf);
   if (!text) throw new Error("PDFから文字を抽出できませんでした");
   const id = `sample-manual-${slug}`;
   const m = { id, title, content: text, updatedAt: nowIso() };
-  if (buf.byteLength <= PDF_KEEP_LIMIT) m.pdfData = bufToB64(buf); // プレビュー用に元PDFも保持
+  if (pdfData) m.pdfData = pdfData; // プレビュー用に元PDFも保持
   if (cloud.on) {
     await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "manuals", id), m);
   } else {
