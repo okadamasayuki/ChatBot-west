@@ -366,28 +366,8 @@
     outline: none;
   }
   .case textarea.custom-dir:focus { border-color: #06c755; }
-  .naiki-reflect { margin-top: 14px; }
-  .naiki-reflect-body {
-    margin-top: 10px;
-    padding: 12px;
-    border: 1px dashed #c9d2df;
-    border-radius: 10px;
-    background: #fbfcfe;
-  }
   .nr-title { font-size: 12.5px; font-weight: 600; color: #1f2a3a; }
   .nr-hint { font-size: 11px; color: #8a93a3; margin: 0 0 8px; line-height: 1.5; }
-  .case textarea.naiki-edit-inline {
-    width: 100%;
-    border: 1.5px solid #d4d9e2;
-    border-radius: 10px;
-    padding: 10px;
-    font-size: 13px;
-    font-family: inherit;
-    line-height: 1.6;
-    min-height: 120px;
-    outline: none;
-  }
-  .case textarea.naiki-edit-inline:focus { border-color: #06c755; }
   .nr-saved { font-size: 11.5px; color: #1f8a4c; margin-top: 6px; }
   .sample-pdf { margin-bottom: 14px; }
   .sample-pdf-links { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
@@ -413,7 +393,6 @@
   .room-naiki-btn:hover { background: #e9eef5; border-color: #06c755; }
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
-  .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
   .case .handled-by { font-size: 12px; color: #4a5568; background: #eef2f8; border-radius: 8px; padding: 5px 10px; display: inline-block; }
   .case .handler-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
   .btn.tiny { font-size: 11.5px; padding: 5px 10px; }
@@ -1687,22 +1666,6 @@ function renderExpert() {
   for (const c of [...open, ...done]) expertList.appendChild(renderCase(c));
 }
 
-// 各相談から社内ルールを更新するパネル(財務のみ・折りたたみ式)
-function naikiReflectHtml(c) {
-  return `<div class="naiki-reflect">
-    <button class="btn secondary naiki-toggle" data-action="toggle-naiki" data-case="${c.id}">📋 この相談から社内ルールを更新</button>
-    <div class="naiki-reflect-body" data-case="${c.id}" style="display:none;">
-      <div class="nr-hint">この相談の対応を社内ルールに追記すると、次回から同様の質問にAIが自動で答えられます。下の社内ルールを直接編集するか、「AIで追記案を作成」で提案を追加してください。</div>
-      <div class="actions">
-        <button class="btn secondary" data-action="suggest-naiki" data-case="${c.id}">AIで追記案を作成</button>
-      </div>
-      <textarea class="naiki-edit-inline" data-case="${c.id}">${escapeHtml(state.naiki || "")}</textarea>
-      <div class="actions">
-        <button class="btn primary" data-action="save-naiki" data-case="${c.id}">社内ルールを更新</button>
-      </div>
-    </div>
-  </div>`;
-}
 
 function renderCase(c) {
   const div = document.createElement("div");
@@ -1727,14 +1690,11 @@ function renderCase(c) {
 
   if (c.status === "answered") {
     html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>`;
-    html += `<div class="answered-note">質問者に回答を送信しました。</div>`;
-    html += naikiReflectHtml(c);
     div.innerHTML = html;
     return div;
   }
 
   // 選択肢(AI提案 + 自由入力を同じカード形式で並べる)
-  html += `<div style="font-size:12px;color:#555;margin-bottom:6px;">回答の方針を選択してください:</div>`;
   c.options.forEach((opt, i) => {
     const sel = c.selectedOption === i ? " selected" : "";
     const checked = c.selectedOption === i ? "checked" : "";
@@ -1769,8 +1729,6 @@ function renderCase(c) {
         <button class="btn primary" data-action="approve" data-case="${c.id}">OK — 質問者に送信</button>
       </div>`;
   }
-
-  html += naikiReflectHtml(c); // どの相談からでも社内ルールを更新できる
 
   div.innerHTML = html;
   return div;
@@ -1854,19 +1812,6 @@ expertList.addEventListener("click", async e => {
     return;
   }
 
-  // 社内ルール更新パネルの開閉
-  if (btn.dataset.action === "toggle-naiki") {
-    const body = expertList.querySelector(`.naiki-reflect-body[data-case="${c.id}"]`);
-    if (body) {
-      const show = body.style.display === "none";
-      body.style.display = show ? "block" : "none";
-      btn.textContent = show ? "✕ 社内ルール更新を閉じる" : "📋 この相談から社内ルールを更新";
-      if (show) expertEditing = c.id; // 開いている間は再描画で消さない
-      else if (!activeRec) expertEditing = null;
-    }
-    return;
-  }
-
   // 対応者として登録(回答前でも可)。ログイン中の財務アカウントを記録
   if (btn.dataset.action === "set-handler") {
     const me = myName();
@@ -1921,59 +1866,11 @@ expertList.addEventListener("click", async e => {
     return;
   }
 
-  // 社内ルールへの追記案をAIで作成し、社内ルール編集欄の末尾に追記
-  if (btn.dataset.action === "suggest-naiki") {
-    const ta = expertList.querySelector(`textarea.naiki-edit-inline[data-case="${c.id}"]`);
-    if (!ta) return;
-    expertEditing = c.id; // 生成中に再描画で消さない
-    const answerText = (c.draft || c.answer || "").trim();
-    btn.disabled = true;
-    btn.textContent = "作成中...";
-    try {
-      const suggestion = await callClaude({
-        system: NAIKI_SUGGEST_SYSTEM,
-        messages: [{
-          role: "user",
-          content: `質問者からの質問:\n${c.question}\n\n専門家が送信/作成した回答:\n${answerText || "(未作成)"}\n\nこの対応をふまえ、社内ルールに追記すべきルールを1項目、箇条書きで提案してください。`
-        }]
-      });
-      const add = (suggestion || "").trim();
-      if (add) {
-        const cur = ta.value.replace(/\s+$/, "");
-        ta.value = cur + (cur ? "\n" : "") + add + "\n";
-      }
-    } catch (err) {
-      alert("追記案の作成に失敗しました: " + err.message);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "AIで追記案を作成";
-    }
-    return;
-  }
-
-  // 社内ルール編集欄の内容を保存(全員で共有)
-  if (btn.dataset.action === "save-naiki") {
-    const ta = expertList.querySelector(`textarea.naiki-edit-inline[data-case="${c.id}"]`);
-    if (!ta) return;
-    state.naiki = ta.value;
-    saveState();
-    saveNaikiShared();
-    renderNaiki(); // 社内ルールタブの表示も同期
-    expertEditing = null;
-    const panel = btn.closest(".naiki-reflect");
-    if (panel && !panel.querySelector(".nr-saved")) {
-      const msg = document.createElement("div");
-      msg.className = "nr-saved";
-      msg.textContent = "✓ 社内ルールを更新しました。次回から全員の回答に反映されます。";
-      panel.appendChild(msg);
-    }
-    return;
-  }
 });
 
 // 編集中(回答案 / 自由入力)はスナップショット再描画で消さない
 expertList.addEventListener("focusin", e => {
-  if (e.target.matches("textarea.draft, textarea.custom-dir, textarea.naiki-edit-inline")) expertEditing = e.target.dataset.case;
+  if (e.target.matches("textarea.draft, textarea.custom-dir")) expertEditing = e.target.dataset.case;
   if (e.target.matches("textarea.custom-dir")) {
     const opt = e.target.closest(".opt");
     if (opt) markCustomSelected(opt); // 自由入力に触れたら選択状態にする
