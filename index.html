@@ -1625,7 +1625,7 @@ function authErrMsg(e) {
   return "認証に失敗しました: " + (e.message || c);
 }
 async function doAuth(kind) {
-  if (!cloud.auth) { showLoginError("先に設定(⚙)でFirebaseとワークスペースを設定してください。"); return; }
+  if (!cloud.auth) { showLoginError("サーバーに接続中です。数秒後にもう一度お試しください。"); return; }
   const email = document.getElementById("loginEmail").value.trim();
   const pass = document.getElementById("loginPassword").value;
   if (!email || !pass) { showLoginError("メールアドレスとパスワードを入力してください。"); return; }
@@ -1799,7 +1799,8 @@ renderChat();
 renderExpert();
 updateBadges();
 applyRole();
-initCloud(); // 常時クラウド接続 → ログイン。APIキーはサーバー側で管理
+openLogin();  // 最初にログイン画面を表示(認証済みなら接続後に自動で閉じる)
+initCloud();  // 常時クラウド接続 → ログイン。APIキーはサーバー側で管理
 </script>
 </body>
 </html>
