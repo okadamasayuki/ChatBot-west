@@ -15,7 +15,7 @@
   }
   #app {
     width: 100%;
-    max-width: 480px;
+    max-width: none;
     height: 100dvh;
     display: flex;
     flex-direction: column;
@@ -496,9 +496,9 @@
   <div class="modal-bg" id="modalSettings">
     <div class="modal">
       <h2>設定</h2>
-      <div class="warn">⚠ このアプリはブラウザから直接 Claude API を呼び出します。API キーはこの端末の localStorage にのみ保存されますが、共有端末では使用しないでください。</div>
-      <p>Anthropic API キー(<code>sk-ant-...</code>)を入力してください。</p>
-      <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...">
+      <p>Anthropic API キーはサーバー(Firebase Functions)側で管理されるため、通常は入力不要です。ログインするだけで利用できます。</p>
+      <p style="margin-bottom:4px;">API キー(任意 / サーバー未設定時のフォールバック用):</p>
+      <input type="password" id="apiKeyInput" placeholder="sk-ant-api03-...(通常は空欄でOK)">
 
       <hr style="border:none;border-top:1px solid #e5e8ee;margin:14px 0;">
       <h2 style="font-size:14px;">☁ アカウント</h2>
@@ -686,7 +686,7 @@ const FIREBASE_CONFIG = {
 // 全員が同じワークスペースを共有(アカウント作成スクリプトでも同じ値を使う)
 const WORKSPACE_CODE = "chatbotwest-5b568-main";
 
-const cloud = { on: false, configured: false, fs: null, authMod: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null, role: null, pendingRole: null };
+const cloud = { on: false, configured: false, fs: null, authMod: null, fnMod: null, functions: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null, role: null, pendingRole: null };
 
 async function sha256hex(s) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -762,11 +762,14 @@ async function initCloud() {
     const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const authMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
     const fsMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
+    const fnMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js");
     const app = appMod.getApps().length ? appMod.getApps()[0] : appMod.initializeApp(cfg);
     cloud.fs = fsMod;
     cloud.authMod = authMod;
+    cloud.fnMod = fnMod;
     cloud.db = fsMod.getFirestore(app);
     cloud.auth = authMod.getAuth(app);
+    cloud.functions = fnMod.getFunctions(app); // 既定リージョン us-central1
     cloud.wid = await sha256hex(code);
     cloud.configured = true;
 
@@ -897,6 +900,24 @@ function updateCase(c, patch) {
 }
 
 async function callClaude({ system, messages, schema }) {
+  // ログイン済みなら Firebase Functions 経由で呼び出す(APIキーはサーバー側。利用者は入力不要)
+  if (cloud.user && cloud.functions && cloud.fnMod) {
+    let d = null;
+    try {
+      const fn = cloud.fnMod.httpsCallable(cloud.functions, "chat");
+      const r = await fn({ system, messages, schema });
+      d = (r && r.data) || {};
+    } catch (e) {
+      // プロキシ未デプロイ等 → APIキーがあれば直接呼び出しにフォールバック
+      if (!state.apiKey) throw new Error("サーバー(APIプロキシ)に接続できませんでした。管理者にご連絡ください。" + (e && e.message ? "（" + e.message + "）" : ""));
+    }
+    if (d) {
+      if (d.refusal) throw new Error("この内容にはお答えできません。別の質問をお試しください。");
+      if (d.text) return d.text;
+      throw new Error("回答を取得できませんでした。もう一度お試しください。");
+    }
+  }
+
   if (!state.apiKey) throw new Error("NO_API_KEY");
   const body = {
     model: MODEL,
@@ -1092,7 +1113,8 @@ function renderChat() {
     renderRoomList();
     return;
   }
-  inputBar.style.display = "flex";
+  // 財務は相談対応のみ(質問の入力はできない=閲覧のみ)
+  inputBar.style.display = (cloud.on && cloud.role === "expert") ? "none" : "flex";
   chatLog.classList.remove("list-mode");
   chatLog.innerHTML = "";
   if (roomMessages.length === 0 && !pendingTyping) {
@@ -1135,6 +1157,7 @@ function renderChat() {
 // 新規相談: この時点では保存せず、最初のメッセージ送信時に保存する(空の相談を残さない)
 function createRoom() {
   if (cloud.configured && !cloud.user) { openLogin(); return; }
+  if (cloud.on && cloud.role === "expert") return; // 財務は新規相談を作成できない
   roomFilter = "mine";
   if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   pendingRoom = {
@@ -1261,8 +1284,7 @@ function sendQuestion() {
 
 async function submitQuestion(text) {
   if (!text || sending) return;
-  if (!state.apiKey) { openSettings(); return; }
-  if (cloud.configured && !cloud.user) { openLogin(); return; } // 共有ONならログイン必須
+  if (cloud.configured && !cloud.user) { openLogin(); return; } // ログイン必須(APIキーはサーバー側)
 
   sending = true;
   btnSend.disabled = true;
@@ -1741,8 +1763,7 @@ renderChat();
 renderExpert();
 updateBadges();
 applyRole();
-initCloud(); // Firebase設定+合言葉があればクラウド共有を開始
-if (!state.apiKey) openSettings();
+initCloud(); // 常時クラウド接続 → ログイン。APIキーはサーバー側で管理
 </script>
 </body>
 </html>
