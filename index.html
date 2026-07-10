@@ -364,6 +364,11 @@
       <p>チーム共有を利用するにはログインが必要です。管理者に発行されたアカウントでログインしてください。</p>
       <input type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="username">
       <input type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password">
+      <div style="margin-bottom:10px;">
+        <div style="font-size:12px;color:#555;margin-bottom:6px;">役割(新規登録・初回ログイン時に選択):</div>
+        <label style="display:block;font-size:13px;margin-bottom:4px;cursor:pointer;"><input type="radio" name="role" value="questioner" checked> 担当者(質問のみ)</label>
+        <label style="display:block;font-size:13px;cursor:pointer;"><input type="radio" name="role" value="expert"> 財務(会計の専門家)</label>
+      </div>
       <div id="loginError" style="color:#c0392b;font-size:12px;margin-bottom:10px;display:none;"></div>
       <div class="row">
         <button class="btn secondary" id="btnSignup">新規登録</button>
@@ -489,7 +494,7 @@ function withNaiki(base) {
    内規・チャット・エスカレーション案件をクラウドで共有する。
    合言葉のSHA-256をワークスペースIDにするため、合言葉を知る担当者だけが
    同じデータにアクセスできる(合言葉は共有パスワードとして扱うこと)。 */
-const cloud = { on: false, configured: false, fs: null, authMod: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null };
+const cloud = { on: false, configured: false, fs: null, authMod: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null, role: null, pendingRole: null };
 
 async function sha256hex(s) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -513,7 +518,24 @@ function updateAuthUI() {
   const btn = document.getElementById("btnLogout");
   if (btn) btn.style.display = cloud.user ? "inline-block" : "none";
   const info = document.getElementById("authInfo");
-  if (info) info.textContent = cloud.user ? ("ログイン中: " + (cloud.user.email || "")) : (cloud.configured ? "未ログイン" : "");
+  if (info) info.textContent = cloud.user ? ("ログイン中: " + (cloud.user.email || "") + " / " + roleLabel(cloud.role)) : (cloud.configured ? "未ログイン" : "");
+}
+
+function roleLabel(r) { return r === "expert" ? "財務" : "担当者"; }
+
+function activateTab(name) {
+  document.querySelectorAll("#tabs .tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  const panel = document.getElementById("panel-" + name);
+  if (panel) panel.classList.add("active");
+}
+
+// 役割に応じてタブ表示を切替: 担当者(質問のみ)は専門家タブを非表示
+function applyRole() {
+  const expertTab = document.querySelector('#tabs .tab[data-tab="expert"]');
+  const questionerOnly = cloud.on && cloud.role === "questioner";
+  if (expertTab) expertTab.style.display = questionerOnly ? "none" : "";
+  if (questionerOnly) activateTab("chat");
 }
 
 async function initCloud() {
@@ -545,19 +567,36 @@ async function initCloud() {
     cloud.configured = true;
 
     // ログイン状態に応じて共有を開始/停止
-    cloud.authUnsub = authMod.onAuthStateChanged(cloud.auth, user => {
+    cloud.authUnsub = authMod.onAuthStateChanged(cloud.auth, async user => {
       cloud.user = user;
       if (user) {
         closeLogin();
         if (!cloud.subscribed) { subscribeCloud(); cloud.subscribed = true; }
         cloud.on = true;
-        setCloudStatus("☁ " + (user.email || "共有中"), true);
+        // 役割を取得(未登録なら選択値で作成)
+        let role = null;
+        try {
+          const mref = cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "members", user.uid);
+          const snap = await cloud.fs.getDoc(mref);
+          if (snap.exists() && snap.data().role) {
+            role = snap.data().role;
+          } else {
+            role = cloud.pendingRole || "questioner";
+            await cloud.fs.setDoc(mref, { email: user.email || "", role, createdAt: nowIso() });
+          }
+        } catch (e) { console.error(e); role = role || cloud.pendingRole || "questioner"; }
+        cloud.pendingRole = null;
+        cloud.role = role;
+        applyRole();
+        setCloudStatus("☁ " + (user.email || "共有中") + " / " + roleLabel(role), true);
       } else {
         cloud.on = false;
+        cloud.role = null;
         unsubData();
         // 共有データが画面に残らないようにクリア(ローカル保存はしない)
         state.messages = []; state.cases = []; state.qaLog = [];
         renderChat(); renderExpert(); updateBadges();
+        applyRole();
         setCloudStatus("要ログイン", false);
         openLogin();
       }
@@ -967,12 +1006,7 @@ function updateBadges() {
 }
 
 document.querySelectorAll("#tabs .tab").forEach(tab => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll("#tabs .tab").forEach(t => t.classList.remove("active"));
-    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-    tab.classList.add("active");
-    document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
-  });
+  tab.addEventListener("click", () => activateTab(tab.dataset.tab));
 });
 
 /* ================= 設定 ================= */
@@ -1037,6 +1071,8 @@ async function doAuth(kind) {
   const email = document.getElementById("loginEmail").value.trim();
   const pass = document.getElementById("loginPassword").value;
   if (!email || !pass) { showLoginError("メールアドレスとパスワードを入力してください。"); return; }
+  const roleEl = document.querySelector('input[name="role"]:checked');
+  cloud.pendingRole = roleEl ? roleEl.value : "questioner"; // 新規登録・初回ログイン時の役割
   try {
     if (kind === "signup") await cloud.authMod.createUserWithEmailAndPassword(cloud.auth, email, pass);
     else await cloud.authMod.signInWithEmailAndPassword(cloud.auth, email, pass);
@@ -1100,6 +1136,7 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 renderChat();
 renderExpert();
 updateBadges();
+applyRole();  // ローカルモードでは両タブ表示
 initCloud(); // Firebase設定+合言葉があればクラウド共有を開始
 if (!state.apiKey) openSettings();
 </script>
