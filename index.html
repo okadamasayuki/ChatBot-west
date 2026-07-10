@@ -554,12 +554,10 @@
   <!-- 社内マニュアルパネル(財務のみ) -->
   <div class="panel" id="panel-manual">
     <div class="pad-scroll">
-      <div class="pad-note">社内マニュアル — アップロードした内容も回答時にAIが参照します(PDF / テキスト / Markdown)。PDFは中の文字を自動で読み取ります。</div>
-      <input id="manualTitle" placeholder="タイトル(例: 経費精算マニュアル)">
-      <textarea id="manualText" style="min-height:120px;" placeholder="本文を貼り付け、または下のファイル(PDF/テキスト)を選択"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-        <input type="file" id="manualFile" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" style="flex:1;min-width:160px;margin-bottom:0;">
-        <button class="btn primary" id="btnAddManual">追加</button>
+      <div class="pad-note">社内マニュアル — PDF / テキスト / Markdown ファイルをアップロードすると、AIが中身を読み取って回答時に参照します。</div>
+      <div style="margin-bottom:12px;">
+        <input type="file" id="manualFile" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" style="width:100%;margin-bottom:0;">
+        <div id="manualAddStatus" style="font-size:12px;margin-top:6px;display:none;"></div>
       </div>
 
       <div class="sample-pdf">
@@ -1962,7 +1960,7 @@ function renderManual() {
 function addManual(title, content) {
   title = (title || "").trim();
   content = (content || "").trim();
-  if (!content) { alert("本文を入力するか、ファイルを選択してください。"); return; }
+  if (!content) { alert("ファイルから内容を読み取れませんでした。"); return; }
   if (!title) title = "無題のマニュアル";
   const m = { id: uid(), title, content, updatedAt: nowIso() };
   if (cloud.on) {
@@ -1970,9 +1968,6 @@ function addManual(title, content) {
   } else {
     manuals.push(m); renderManual();
   }
-  document.getElementById("manualTitle").value = "";
-  document.getElementById("manualText").value = "";
-  document.getElementById("manualFile").value = "";
 }
 function deleteManual(id) {
   if (!confirm("このマニュアルを削除しますか?")) return;
@@ -1982,37 +1977,30 @@ function deleteManual(id) {
     manuals = manuals.filter(m => m.id !== id); renderManual();
   }
 }
+// ファイルを選ぶとその場でマニュアルを追加(タイトル=ファイル名、本文=中身)
 document.getElementById("manualFile").addEventListener("change", async e => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
-  const txtEl = document.getElementById("manualText");
-  const tEl = document.getElementById("manualTitle");
-  const setTitle = re => { if (!tEl.value.trim()) tEl.value = f.name.replace(re, ""); };
+  const status = document.getElementById("manualAddStatus");
+  const setStatus = (msg, ok) => { status.textContent = msg; status.style.color = ok ? "#06a04a" : "#c0392b"; status.style.display = "block"; };
+  const title = f.name.replace(/\.(pdf|txt|md|markdown)$/i, "");
   const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
-  if (isPdf) {
-    const prev = txtEl.value;
-    txtEl.value = "PDFを読み込み中...";
-    try {
-      const buf = await f.arrayBuffer();
-      const text = await extractPdfText(buf);
-      txtEl.value = text || "";
-      setTitle(/\.pdf$/i);
-      if (!text) alert("PDFから文字を抽出できませんでした。画像だけのスキャンPDFの可能性があります。");
-    } catch (err) {
-      txtEl.value = prev;
-      alert("PDFの読み込みに失敗しました: " + err.message);
+  try {
+    let text = "";
+    if (isPdf) {
+      setStatus("PDFを読み込み中...", true);
+      text = await extractPdfText(await f.arrayBuffer());
+      if (!text) { setStatus("PDFから文字を抽出できませんでした(画像だけのスキャンPDFの可能性)。", false); e.target.value = ""; return; }
+    } else {
+      text = await f.text();
     }
-  } else {
-    const reader = new FileReader();
-    reader.onload = () => {
-      txtEl.value = String(reader.result || "");
-      setTitle(/\.(txt|md|markdown)$/i);
-    };
-    reader.readAsText(f);
+    addManual(title, text);
+    setStatus(`「${title}」を追加しました。`, true);
+  } catch (err) {
+    setStatus("読み込みに失敗しました: " + err.message, false);
+  } finally {
+    e.target.value = "";
   }
-});
-document.getElementById("btnAddManual").addEventListener("click", () => {
-  addManual(document.getElementById("manualTitle").value, document.getElementById("manualText").value);
 });
 document.getElementById("manualList").addEventListener("click", e => {
   const b = e.target.closest("button[data-del]");
