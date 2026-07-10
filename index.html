@@ -325,6 +325,12 @@
   }
   .case .opt:hover { border-color: #06c755; }
   .case .opt.selected { border-color: #06c755; background: #f0fbf4; }
+  .case .opt.locked { opacity: .55; cursor: not-allowed; }
+  .case .handler-hint {
+    font-size: 12px; color: #8a6d00;
+    background: #fff8e1; border-radius: 8px;
+    padding: 8px 10px; margin-top: 8px; line-height: 1.6;
+  }
   .case .opt input { margin-top: 3px; }
   .case .opt-custom-body { flex: 1; min-width: 0; }
   .case .opt-custom-label { font-size: 13px; }
@@ -1824,18 +1830,23 @@ function renderCase(c) {
     return div;
   }
 
+  // 自分が対応者になっている案件だけ、選択肢の選択〜回答の送信ができる
+  const mineHandling = !!myName() && c.handledBy === myName();
+  const lockCls = mineHandling ? "" : " locked";
+  const lockDis = mineHandling ? "" : " disabled";
+
   // 選択肢(AI提案 + 自由入力を同じカード形式で並べる)
   c.options.forEach((opt, i) => {
     const sel = c.selectedOption === i ? " selected" : "";
     const checked = c.selectedOption === i ? "checked" : "";
-    html += `<label class="opt${sel}" data-case="${c.id}" data-opt="${i}">
-      <input type="radio" name="opt-${c.id}" ${checked}>
+    html += `<label class="opt${sel}${lockCls}" data-case="${c.id}" data-opt="${i}">
+      <input type="radio" name="opt-${c.id}" ${checked}${lockDis}>
       <span>${escapeHtml(opt)}</span>
     </label>`;
   });
   // 自由入力も選択肢と同じカード形式(クリックで入力フォームが開く。音声入力可)
-  html += `<div class="opt opt-custom" data-case="${c.id}" data-opt="custom">
-      <input type="radio" name="opt-${c.id}">
+  html += `<div class="opt opt-custom${lockCls}" data-case="${c.id}" data-opt="custom">
+      <input type="radio" name="opt-${c.id}"${lockDis}>
       <span class="opt-custom-body">
         <div class="opt-custom-label">自由に入力する(音声入力できます)</div>
         <div class="custom-input-area" style="display:none;">
@@ -1847,17 +1858,23 @@ function renderCase(c) {
       </span>
     </div>`;
 
-  html += `<div class="actions">
-    <button class="btn primary" data-action="draft" data-case="${c.id}">回答文(案)を作成</button>
-  </div>`;
+  if (mineHandling) {
+    html += `<div class="actions">
+      <button class="btn primary" data-action="draft" data-case="${c.id}">回答文(案)を作成</button>
+    </div>`;
 
-  if (c.status === "drafted" && c.draft !== null) {
-    html += `<div style="font-size:12px;color:#555;margin-top:12px;">回答文(案) — 編集できます:</div>
-      <textarea class="draft" data-case="${c.id}">${escapeHtml(c.draft)}</textarea>
-      <div class="actions">
-        <button class="btn secondary" data-action="redraft" data-case="${c.id}">作り直す</button>
-        <button class="btn primary" data-action="approve" data-case="${c.id}">OK — 質問者に送信</button>
-      </div>`;
+    if (c.status === "drafted" && c.draft !== null) {
+      html += `<div style="font-size:12px;color:#555;margin-top:12px;">回答文(案) — 編集できます:</div>
+        <textarea class="draft" data-case="${c.id}">${escapeHtml(c.draft)}</textarea>
+        <div class="actions">
+          <button class="btn secondary" data-action="redraft" data-case="${c.id}">作り直す</button>
+          <button class="btn primary" data-action="approve" data-case="${c.id}">OK — 質問者に送信</button>
+        </div>`;
+    }
+  } else {
+    html += `<div class="handler-hint">${c.handledBy
+      ? `対応中：${escapeHtml(c.handledBy)} さんの案件です。回答するには上のラベルをタップして対応者を自分に変更してください。`
+      : "回答するには「要対応」をタップして、自分を対応者にしてください。"}</div>`;
   }
 
   div.innerHTML = html;
@@ -1918,6 +1935,7 @@ expertList.addEventListener("click", async e => {
   if (optEl) {
     const c = state.cases.find(x => x.id === optEl.dataset.case);
     if (!c || c.status === "answered") return;
+    if (!myName() || c.handledBy !== myName()) return; // 対応者(自分)以外は選択不可
     if (optEl.dataset.opt === "custom") {
       // 自由入力カード: 入力欄/マイクのクリックはそれぞれの動作に任せる
       if (e.target.closest(".custom-dir, .mic-btn")) return;
@@ -1950,6 +1968,9 @@ expertList.addEventListener("click", async e => {
     updateCase(c, { handledBy: c.handledBy === me ? "" : me });
     return;
   }
+
+  // 回答文の作成・送信は対応者(自分)のみ
+  if (["draft", "redraft", "approve"].includes(btn.dataset.action) && (!myName() || c.handledBy !== myName())) return;
 
   if (btn.dataset.action === "draft" || btn.dataset.action === "redraft") {
     // 回答方針: 音声/自由入力があればそれを優先、なければ選択した選択肢
