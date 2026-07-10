@@ -948,6 +948,7 @@ let roomMessages = [];     // 現在ルームのメッセージ
 let roomMsgUnsub = null;   // クラウド: 現在ルームのメッセージ購読解除
 let roomFilter = "mine";   // "mine"=自分の相談 / "all"=相談一覧(全体)
 let manuals = [];          // 社内マニュアル [{id,title,content,updatedAt}]
+let pendingRoom = null;    // 未送信の新規相談(最初のメッセージ送信まで保存しない)
 
 function myUid() { return cloud.user ? cloud.user.uid : "local"; }
 function isMyRoom(r) { return !r.ownerUid || r.ownerUid === myUid(); } // 所有者未設定(旧データ/サンプル)は自分扱い
@@ -958,21 +959,54 @@ function fmtDate(iso) {
   if (d.toDateString() === now.toDateString()) return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
-function currentRoom() { return rooms.find(r => r.id === currentRoomId); }
+function currentRoom() {
+  return rooms.find(r => r.id === currentRoomId) ||
+    (pendingRoom && pendingRoom.id === currentRoomId ? pendingRoom : null);
+}
 function cloudRoomDoc(id) { return cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", id); }
 
+// 現在ルームのメッセージ購読(クラウド)
+function subscribeRoomMessages(id) {
+  if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
+  roomMessages = [];
+  const { collection, onSnapshot, query, orderBy } = cloud.fs;
+  roomMsgUnsub = onSnapshot(
+    query(collection(cloud.db, "workspaces", cloud.wid, "rooms", id, "messages"), orderBy("ts")),
+    snap => { roomMessages = snap.docs.map(d => d.data()); renderChat(); }
+  );
+}
+
 // メッセージ追加(ルーム単位。roomId未指定なら現在のルーム)
+// 未送信の新規相談(pendingRoom)は、最初のメッセージ送信時に初めて保存する
 function addMessage(msg, roomId) {
   roomId = roomId || currentRoomId;
   if (!roomId) return;
   const lastText = msg.role === "user" ? msg.text : (msg.role === "expert" ? "【専門家】" + msg.text : msg.text);
+  const isPending = pendingRoom && pendingRoom.id === roomId;
+
   if (cloud.on) {
+    if (isPending) {
+      const room = pendingRoom; pendingRoom = null;
+      room.lastText = lastText || ""; room.lastTs = msg.ts || nowIso();
+      if (msg.role === "user") room.title = snippet(msg.text, 30);
+      cloud.fs.setDoc(cloudRoomDoc(room.id), room).catch(e => console.error(e));
+      subscribeRoomMessages(room.id);
+    }
     cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", roomId, "messages", msg.id), msg).catch(e => console.error(e));
-    const r = rooms.find(x => x.id === roomId);
-    const patch = { lastText: lastText || "", lastTs: msg.ts || nowIso() };
-    if (msg.role === "user" && (!r || !r.title || r.title === "新しい相談")) patch.title = snippet(msg.text, 30);
-    cloud.fs.updateDoc(cloudRoomDoc(roomId), patch).catch(e => console.error(e));
+    if (!isPending) {
+      const r = rooms.find(x => x.id === roomId);
+      const patch = { lastText: lastText || "", lastTs: msg.ts || nowIso() };
+      if (msg.role === "user" && (!r || !r.title || r.title === "新しい相談")) patch.title = snippet(msg.text, 30);
+      cloud.fs.updateDoc(cloudRoomDoc(roomId), patch).catch(e => console.error(e));
+    }
     return;
+  }
+
+  // ローカル
+  if (isPending) {
+    const room = pendingRoom; pendingRoom = null;
+    state.rooms.push(room);
+    state.roomMsgs[room.id] = [];
   }
   if (!state.roomMsgs[roomId]) state.roomMsgs[roomId] = [];
   state.roomMsgs[roomId].push(msg);
@@ -1098,37 +1132,28 @@ function renderChat() {
 }
 
 // 新規ルーム作成
+// 新規相談: この時点では保存せず、最初のメッセージ送信時に保存する(空の相談を残さない)
 function createRoom() {
   if (cloud.configured && !cloud.user) { openLogin(); return; }
-  roomFilter = "mine"; // 新規作成時は自分の相談ビューへ
-  const room = {
+  roomFilter = "mine";
+  if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
+  pendingRoom = {
     id: uid(), title: "新しい相談", createdAt: nowIso(), lastText: "", lastTs: nowIso(),
     ownerUid: myUid(), ownerEmail: cloud.user ? (cloud.user.email || "") : ""
   };
-  if (cloud.on) {
-    cloud.fs.setDoc(cloudRoomDoc(room.id), room).catch(e => console.error(e));
-    rooms.unshift(room); // 楽観的追加(snapshotで整合)
-  } else {
-    state.rooms.push(room);
-    state.roomMsgs[room.id] = [];
-    saveState();
-    rooms = state.rooms.slice();
-  }
-  openRoom(room.id);
+  currentRoomId = pendingRoom.id;
+  roomMessages = [];
+  renderChat();
 }
 
 // ルームを開く
 function openRoom(id) {
+  pendingRoom = null; // 別ルームを開いたら未送信の下書きは破棄
   currentRoomId = id;
-  if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   if (cloud.on) {
-    roomMessages = [];
-    const { collection, onSnapshot, query, orderBy } = cloud.fs;
-    roomMsgUnsub = onSnapshot(
-      query(collection(cloud.db, "workspaces", cloud.wid, "rooms", id, "messages"), orderBy("ts")),
-      snap => { roomMessages = snap.docs.map(d => d.data()); renderChat(); }
-    );
+    subscribeRoomMessages(id);
   } else {
+    if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
     roomMessages = state.roomMsgs[id] || [];
   }
   renderChat();
@@ -1136,6 +1161,7 @@ function openRoom(id) {
 
 // 一覧へ戻る
 function backToRooms() {
+  pendingRoom = null; // 未送信の新規相談は破棄(空の相談を残さない)
   currentRoomId = null;
   if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   roomMessages = [];
