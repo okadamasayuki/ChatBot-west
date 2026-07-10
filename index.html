@@ -163,6 +163,18 @@
   .room-tag.waiting { background: #e7f0ff; color: #2a6fd6; }
   .room-meta { font-size: 10px; color: #9aa6b6; flex-shrink: 0; margin-left: 6px; }
   .room-empty { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 20px; line-height: 1.7; }
+  .room-sort-bar {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; justify-content: flex-end; align-items: center; gap: 6px;
+    padding: 6px 10px; flex: none;
+    background: #fafbfc; border-bottom: 1px solid #eef0f4;
+  }
+  .room-sort-bar .rs-label { font-size: 11px; color: #7a8699; }
+  .room-sort-bar select {
+    font-size: 12px; padding: 4px 8px;
+    border: 1px solid #d4d9e2; border-radius: 8px;
+    background: #fff; color: #4a5568;
+  }
 
   /* ===== Chat (questioner) ===== */
   #chatLog {
@@ -1280,6 +1292,8 @@ function updateRoomBar() {
 function pendingRoomIs(r) { return !!(pendingRoom && r && pendingRoom.id === r.id); }
 
 let roomListScrollTop = 0; // 相談一覧のスクロール位置(ルームを開いて戻っても保持)
+let roomSort = "new";      // 並び替え: "new"=新しい順 / "old"=古い順 / "status"=ステータス順
+try { roomSort = localStorage.getItem("roomSort") || "new"; } catch (e) {}
 function renderRoomList() {
   chatLog.innerHTML = "";
   // メッセージのない相談(空の下書きの残骸)は一覧に出さない
@@ -1291,9 +1305,40 @@ function renderRoomList() {
       : '<div class="room-empty">相談はまだありません。</div>';
     return;
   }
-  const sorted = list.sort((a, b) => (b.lastTs || "").localeCompare(a.lastTs || ""));
+  // 並び替えセレクタ(一覧の上部に固定)
+  const sortBar = document.createElement("div");
+  sortBar.className = "room-sort-bar";
+  sortBar.innerHTML =
+    `<span class="rs-label">並び替え</span>
+    <select title="並び替え">
+      <option value="new">新しい順</option>
+      <option value="old">古い順</option>
+      <option value="status">ステータス順</option>
+    </select>`;
+  const sel = sortBar.querySelector("select");
+  sel.value = roomSort;
+  sel.addEventListener("change", () => {
+    roomSort = sel.value;
+    try { localStorage.setItem("roomSort", roomSort); } catch (e) {}
+    roomListScrollTop = 0; // 並び順が変わるので先頭から表示
+    renderRoomList();
+  });
+  chatLog.appendChild(sortBar);
+
+  const openSet = new Set(state.cases.filter(c => c.status !== "answered").map(c => c.roomId));
+  const byNew = (a, b) => (b.lastTs || "").localeCompare(a.lastTs || "");
+  let sorted;
+  if (roomSort === "old") {
+    sorted = list.sort((a, b) => byNew(b, a));
+  } else if (roomSort === "status") {
+    // BA回答待ち → 担当者回答待ち → 完了(同じステータス内は新しい順)
+    const rank = r => r.status === "done" ? 2 : (openSet.has(r.id) ? 0 : 1);
+    sorted = list.sort((a, b) => (rank(a) - rank(b)) || byNew(a, b));
+  } else {
+    sorted = list.sort(byNew);
+  }
   for (const r of sorted) {
-    const openCase = state.cases.some(c => c.roomId === r.id && c.status !== "answered");
+    const openCase = openSet.has(r.id);
     const doneRoom = r.status === "done";
     // ステータスは3種類: 完了(チャット内で選択) / BA回答待ち(エスカレーション中) / 担当者回答待ち(それ以外)
     let tag;
