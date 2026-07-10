@@ -116,7 +116,6 @@
   #roomFilters .rf:first-child { border-radius: 8px 0 0 8px; border-right: none; }
   #roomFilters .rf:last-child { border-radius: 0 8px 8px 0; }
   #roomFilters .rf.active { background: #06c755; color: #fff; border-color: #06c755; }
-  .room-owner { font-size: 10px; color: #9aa6b6; margin-top: 2px; }
   #roomTitle {
     flex: 1;
     font-size: 14px;
@@ -152,10 +151,6 @@
   .room-main { flex: 1; min-width: 0; }
   .room-title {
     font-size: 13.5px; font-weight: 600; color: #1f2a3a;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .room-preview {
-    font-size: 11.5px; color: #7a8699; margin-top: 1px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .room-tag {
@@ -1278,9 +1273,6 @@ function renderRoomList() {
     let tag = "";
     if (openCase) tag = '<div class="room-tag">BA対応中</div>';
     else if (answered) tag = '<div class="room-tag done">BA回答済み</div>';
-    // 「全員の相談」表示のときは相談者を表示
-    const ownerLabel = r.ownerName || r.ownerEmail;
-    const owner = (roomFilter === "all" && ownerLabel) ? `<div class="room-owner">相談者: ${escapeHtml(ownerLabel)}</div>` : "";
     const mine = canDeleteRoom(r); // 自分の相談のみスワイプ削除可(財務は不可)
     // 財務は一覧から直接、その相談をもとに社内ルールを更新できる
     const naikiBtn = (cloud.on && cloud.role === "expert")
@@ -1293,8 +1285,7 @@ function renderRoomList() {
       `<div class="room-item${mine ? " swipeable" : ""}" data-room="${r.id}">
         <div class="room-main">
           <div class="room-title">${escapeHtml(r.title || "相談")}</div>
-          <div class="room-preview">${escapeHtml(snippet(r.lastText, 40) || "(メッセージなし)")}</div>
-          ${owner}${tag}
+          ${tag}
         </div>
         <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>
         ${naikiBtn}
