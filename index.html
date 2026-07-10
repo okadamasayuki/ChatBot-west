@@ -410,6 +410,10 @@
   .sample-pdf-links { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
   .sample-link { font-size: 12.5px; color: #06874a; text-decoration: none; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; padding: 8px 10px; }
   .sample-link:hover { background: #e3f6e9; }
+  .sample-row { display: flex; gap: 6px; align-items: stretch; }
+  .sample-row .sample-link { flex: 1; }
+  .sample-dl { display: flex; align-items: center; justify-content: center; width: 44px; flex-shrink: 0; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; color: #06874a; text-decoration: none; font-size: 15px; }
+  .sample-dl:hover { background: #e3f6e9; }
   .room-naiki-bar { margin: 12px 4px 4px; }
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
@@ -596,13 +600,13 @@
 
       <div class="sample-pdf" style="margin-top:4px;">
         <div class="nr-title">📄 サンプルマニュアル(PDF)</div>
-        <div class="nr-hint">ダウンロードして、マニュアルタブの「ファイルを選択」からアップロードすると、AIが中身を参照します。</div>
+        <div class="nr-hint">タイトルをタップするとPDFをプレビュー(中身を確認)、⬇で保存できます。マニュアルタブの「ファイルを選択」からアップロードするとAIが参照します。</div>
         <div class="sample-pdf-links">
-          <a class="sample-link" href="samples/manuals/keihi.pdf" download="経費精算マニュアル.pdf">📄 経費精算マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/kotei.pdf" download="固定資産管理マニュアル.pdf">📄 固定資産管理マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/kosai.pdf" download="交際費・会議費マニュアル.pdf">📄 交際費・会議費マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/invoice.pdf" download="インボイス・消費税マニュアル.pdf">📄 インボイス・消費税マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/kyuyo.pdf" download="給与・社会保険マニュアル.pdf">📄 給与・社会保険マニュアル.pdf</a>
+          <div class="sample-row"><a class="sample-link" href="samples/manuals/keihi.pdf" target="_blank" rel="noopener">📄 経費精算マニュアル</a><a class="sample-dl" href="samples/manuals/keihi.pdf" download="経費精算マニュアル.pdf" title="保存">⬇</a></div>
+          <div class="sample-row"><a class="sample-link" href="samples/manuals/kotei.pdf" target="_blank" rel="noopener">📄 固定資産管理マニュアル</a><a class="sample-dl" href="samples/manuals/kotei.pdf" download="固定資産管理マニュアル.pdf" title="保存">⬇</a></div>
+          <div class="sample-row"><a class="sample-link" href="samples/manuals/kosai.pdf" target="_blank" rel="noopener">📄 交際費・会議費マニュアル</a><a class="sample-dl" href="samples/manuals/kosai.pdf" download="交際費・会議費マニュアル.pdf" title="保存">⬇</a></div>
+          <div class="sample-row"><a class="sample-link" href="samples/manuals/invoice.pdf" target="_blank" rel="noopener">📄 インボイス・消費税マニュアル</a><a class="sample-dl" href="samples/manuals/invoice.pdf" download="インボイス・消費税マニュアル.pdf" title="保存">⬇</a></div>
+          <div class="sample-row"><a class="sample-link" href="samples/manuals/kyuyo.pdf" target="_blank" rel="noopener">📄 給与・社会保険マニュアル</a><a class="sample-dl" href="samples/manuals/kyuyo.pdf" download="給与・社会保険マニュアル.pdf" title="保存">⬇</a></div>
         </div>
       </div>
       <div class="row">
