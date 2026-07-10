@@ -462,6 +462,7 @@
     -webkit-overflow-scrolling: touch;
   }
   .modal h2 { font-size: 15px; margin-bottom: 10px; }
+  #modalManualPreview .modal { max-width: 760px; } /* PDFプレビューは広めに */
   .modal p { font-size: 12px; color: #666; line-height: 1.6; margin-bottom: 12px; }
   .modal input {
     width: 100%;
@@ -1973,17 +1974,27 @@ function renderManual() {
     list.appendChild(div);
   });
 }
-function addManual(title, content) {
+function addManual(title, content, pdfData) {
   title = (title || "").trim();
   content = (content || "").trim();
   if (!content) { alert("ファイルから内容を読み取れませんでした。"); return; }
   if (!title) title = "無題のマニュアル";
   const m = { id: uid(), title, content, updatedAt: nowIso() };
+  if (pdfData) m.pdfData = pdfData; // 元PDF(base64)。プレビュー表示用
   if (cloud.on) {
     cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "manuals", m.id), m).catch(e => console.error(e));
   } else {
     manuals.push(m); renderManual();
   }
+}
+// ArrayBuffer → base64(Firestoreの1MB制限に収まる場合のみ保存)
+const PDF_KEEP_LIMIT = 600 * 1024; // 元PDFを保持する上限(約600KB)
+function bufToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  return btoa(bin);
 }
 function deleteManual(id) {
   if (!confirm("このマニュアルを削除しますか?")) return;
@@ -2002,15 +2013,17 @@ document.getElementById("manualFile").addEventListener("change", async e => {
   const title = f.name.replace(/\.(pdf|txt|md|markdown)$/i, "");
   const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
   try {
-    let text = "";
+    let text = "", pdfData = null;
     if (isPdf) {
       setStatus("PDFを読み込み中...", true);
-      text = await extractPdfText(await f.arrayBuffer());
+      const buf = await f.arrayBuffer();
+      text = await extractPdfText(buf);
       if (!text) { setStatus("PDFから文字を抽出できませんでした(画像だけのスキャンPDFの可能性)。", false); e.target.value = ""; return; }
+      if (buf.byteLength <= PDF_KEEP_LIMIT) pdfData = bufToB64(buf); // 大きいPDFはテキストプレビューにフォールバック
     } else {
       text = await f.text();
     }
-    addManual(title, text);
+    addManual(title, text, pdfData);
     setStatus(`「${title}」を追加しました。`, true);
   } catch (err) {
     setStatus("読み込みに失敗しました: " + err.message, false);
@@ -2027,12 +2040,53 @@ document.getElementById("manualList").addEventListener("click", e => {
     if (m) openManualPreview(m);
   }
 });
-// マニュアルの中身(抽出テキスト)をプレビュー
+// マニュアルのプレビュー(元PDFがあればPDFをそのまま描画、なければ抽出テキスト)
 const modalManualPreview = document.getElementById("modalManualPreview");
-function openManualPreview(m) {
+let previewSeq = 0; // 連打・切替時に古い描画を破棄する
+async function openManualPreview(m) {
+  const body = document.getElementById("manualPreviewBody");
   document.getElementById("manualPreviewTitle").textContent = m.title || "無題";
-  document.getElementById("manualPreviewBody").textContent = m.content || "(内容なし)";
   modalManualPreview.classList.add("show");
+  const seq = ++previewSeq;
+  if (!m.pdfData) {
+    body.textContent = m.content || "(内容なし)";
+    return;
+  }
+  body.textContent = "PDFを読み込み中...";
+  try {
+    const bin = atob(m.pdfData);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const lib = await loadPdfjs();
+    const pdf = await lib.getDocument({
+      data: bytes,
+      cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/cmaps/`,
+      cMapPacked: true
+    }).promise;
+    if (seq !== previewSeq) return; // 別のプレビューに切り替わった
+    body.textContent = "";
+    const width = Math.min(body.clientWidth || 600, 900);
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const base = page.getViewport({ scale: 1 });
+      const scale = (width - 8) / base.width;
+      const viewport = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = "100%";
+      canvas.style.display = "block";
+      canvas.style.marginBottom = "8px";
+      canvas.style.background = "#fff";
+      canvas.style.borderRadius = "6px";
+      canvas.style.boxShadow = "0 1px 3px rgba(0,0,0,.15)";
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      if (seq !== previewSeq) return;
+      body.appendChild(canvas);
+    }
+  } catch (err) {
+    if (seq === previewSeq) body.textContent = m.content || ("PDFの表示に失敗しました: " + err.message);
+  }
 }
 document.getElementById("btnManualPreviewClose").addEventListener("click", () => modalManualPreview.classList.remove("show"));
 modalManualPreview.addEventListener("click", e => { if (e.target === modalManualPreview) modalManualPreview.classList.remove("show"); });
@@ -2089,10 +2143,12 @@ document.getElementById("btnManualNaikiReplace").addEventListener("click", () =>
 async function addSampleManual(slug, title) {
   const resp = await fetch(`samples/manuals/${slug}.pdf`);
   if (!resp.ok) throw new Error("PDFを取得できませんでした");
-  const text = await extractPdfText(await resp.arrayBuffer());
+  const buf = await resp.arrayBuffer();
+  const text = await extractPdfText(buf);
   if (!text) throw new Error("PDFから文字を抽出できませんでした");
   const id = `sample-manual-${slug}`;
   const m = { id, title, content: text, updatedAt: nowIso() };
+  if (buf.byteLength <= PDF_KEEP_LIMIT) m.pdfData = bufToB64(buf); // プレビュー用に元PDFも保持
   if (cloud.on) {
     await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "manuals", id), m);
   } else {
