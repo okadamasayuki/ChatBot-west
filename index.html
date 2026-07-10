@@ -424,6 +424,7 @@
       <div class="warn">共有ONの場合、内規と質問⇄回答は Firebase(クラウド)に保存され、ログインした担当者のみアクセスできます。合言葉は共有パスワードとして厳重に管理してください。セットアップ手順は README を参照。</div>
       <div id="authInfo" style="font-size:12px;color:#06a04a;margin-bottom:8px;"></div>
       <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
+      <button class="btn secondary" id="btnLoadSamples" style="margin-bottom:12px;">サンプル相談を読み込む(デモ)</button>
       <div class="row">
         <button class="btn secondary" id="btnClearData">全データ削除</button>
         <button class="btn primary" id="btnSaveKey">保存</button>
@@ -1257,9 +1258,22 @@ function openSettings() {
   }
   naikiInput.readOnly = true;
   naikiInput.style.background = "#f3f4f6";
+  // サンプル読み込みはローカル(共有OFF)時のみ
+  const sb = document.getElementById("btnLoadSamples");
+  if (sb) sb.style.display = cloud.on ? "none" : "block";
   updateAuthUI();
   modalSettings.classList.add("show");
 }
+document.getElementById("btnLoadSamples").addEventListener("click", () => {
+  const added = loadExamples();
+  rooms = state.rooms.slice();
+  currentRoomId = null;
+  renderChat();
+  renderExpert();
+  updateBadges();
+  modalSettings.classList.remove("show");
+  alert(added > 0 ? `サンプル相談を${added}件読み込みました。` : "サンプルは既に読み込まれています。");
+});
 document.getElementById("btnSettings").addEventListener("click", openSettings);
 document.getElementById("btnSaveKey").addEventListener("click", () => {
   state.apiKey = apiKeyInput.value.trim();
@@ -1367,13 +1381,10 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
   downloadFile(`qa-history-${stamp()}.csv`, "﻿" + rows.join("\r\n"), "text/csv;charset=utf-8");
 });
 
-/* ================= サンプルデータ(共有未設定時のデモ用) ================= */
-function seedExamples() {
-  if (state.firebaseConfig) return;   // 共有設定済みなら入れない
-  if (state.rooms.length > 0) return; // 既存データがあれば入れない
-
+/* ================= サンプルデータ(デモ用) ================= */
+function exampleData() {
   const ESC = "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。";
-  const examples = [
+  return [
     {
       room: { id: "ex1", title: "減価償却はどの方法で計算すればいい?", createdAt: "2026-07-08T01:00:00.000Z", lastText: "", lastTs: "2026-07-08T01:01:00.000Z" },
       msgs: [
@@ -1430,15 +1441,29 @@ function seedExamples() {
       }
     }
   ];
+}
 
-  examples.forEach(e => {
+// 既存にないサンプルだけを追加(重複しない)。追加件数を返す。
+function loadExamples() {
+  let added = 0;
+  exampleData().forEach(e => {
+    if (state.rooms.some(r => r.id === e.room.id)) return;
     e.room.lastText = e.msgs[e.msgs.length - 1].text;
     state.rooms.push(e.room);
     state.roomMsgs[e.room.id] = e.msgs;
-    if (e.caseObj) state.cases.push(e.caseObj);
+    if (e.caseObj && !state.cases.some(c => c.id === e.caseObj.id)) state.cases.push(e.caseObj);
     if (e.qa) state.qaLog.push(e.qa);
+    added++;
   });
-  saveState();
+  if (added) saveState();
+  return added;
+}
+
+// 初回のみ自動投入(共有未設定 & データ無しのとき)
+function seedExamples() {
+  if (state.firebaseConfig) return;
+  if (state.rooms.length > 0) return;
+  loadExamples();
 }
 seedExamples();
 
