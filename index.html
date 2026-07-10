@@ -539,10 +539,7 @@
   <div class="panel" id="panel-naiki">
     <div class="pad-scroll">
       <textarea id="naikiEdit" style="background:#f3f4f6;" readonly></textarea>
-      <div class="row" style="margin-top:10px;flex:none;">
-        <button class="btn secondary" id="btnCompactNaiki">🧹 コンパクト</button>
-        <button class="btn secondary" id="btnClearNaiki">🗑 空にする</button>
-      </div>
+      <button class="btn secondary" id="btnCompactNaiki" style="margin-top:10px;flex:none;">🧹 コンパクト</button>
     </div>
   </div>
 
@@ -607,6 +604,10 @@
           <div class="sample-row"><button class="sample-add" data-manual="invoice" data-title="インボイス・消費税マニュアル">📄 インボイス・消費税マニュアル を追加</button></div>
           <div class="sample-row"><button class="sample-add" data-manual="kyuyo" data-title="給与・社会保険マニュアル">📄 給与・社会保険マニュアル を追加</button></div>
         </div>
+      </div>
+      <div id="naikiAdminSection" style="display:none;margin-top:12px;">
+        <div class="nr-title">📘 社内ルール</div>
+        <button class="btn secondary" id="btnClearNaiki" style="margin-top:6px;">🗑 社内ルールを空にする</button>
       </div>
       <div id="answerStyleSection" style="display:none;margin-top:12px;">
         <div class="nr-title">✍️ 回答の癖(回答スタイル)</div>
@@ -2350,9 +2351,11 @@ document.querySelectorAll("#tabs .tab").forEach(tab => {
 const modalSettings = document.getElementById("modalSettings");
 function openSettings() {
   updateAuthUI();
-  // 回答の癖(財務のみ表示)
+  // 社内ルール管理・回答の癖(財務のみ表示)
+  const isExpert = cloud.on && cloud.role === "expert";
+  document.getElementById("naikiAdminSection").style.display = isExpert ? "" : "none";
   const styleSec = document.getElementById("answerStyleSection");
-  styleSec.style.display = (cloud.on && cloud.role === "expert") ? "" : "none";
+  styleSec.style.display = isExpert ? "" : "none";
   document.getElementById("answerStyleEdit").value = state.answerStyle || "";
   document.getElementById("answerStyleSaved").style.display = "none";
   modalSettings.classList.add("show");
