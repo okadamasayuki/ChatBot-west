@@ -1087,6 +1087,7 @@ let roomMsgUnsub = null;   // クラウド: 現在ルームのメッセージ購
 let roomFilter = "mine";   // "mine"=自分の相談 / "all"=相談一覧(全体)
 let manuals = [];          // 社内マニュアル [{id,title,content,updatedAt}]
 let pendingRoom = null;    // 未送信の新規相談(最初のメッセージ送信まで保存しない)
+let roomOrigin = null;     // "expert"=専門家タブから開いた(右スワイプで専門家タブに戻れる)
 
 function myUid() { return cloud.user ? cloud.user.uid : "local"; }
 function isMyRoom(r) { return !r.ownerUid || r.ownerUid === myUid(); } // 所有者未設定(旧データ/サンプル)は自分扱い
@@ -1308,6 +1309,7 @@ function createRoom() {
 // ルームを開く
 function openRoom(id) {
   pendingRoom = null; // 別ルームを開いたら未送信の下書きは破棄
+  roomOrigin = null;  // 通常のオープンは戻り先なし(専門家からのときは後で設定)
   currentRoomId = id;
   if (cloud.on) {
     subscribeRoomMessages(id);
@@ -1321,11 +1323,34 @@ function openRoom(id) {
 // 一覧へ戻る
 function backToRooms() {
   pendingRoom = null; // 未送信の新規相談は破棄(空の相談を残さない)
+  roomOrigin = null;
   currentRoomId = null;
   if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
   roomMessages = [];
   renderChat();
 }
+
+// 専門家タブから開いた相談は、ページを右にスワイプすると専門家タブへ戻る
+(function setupExpertBackSwipe() {
+  const panel = document.getElementById("panel-chat");
+  if (!panel) return;
+  let sx = 0, sy = 0, tracking = false;
+  panel.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+  }, { passive: true });
+  panel.addEventListener("touchend", e => {
+    if (!tracking) return;
+    tracking = false;
+    if (roomOrigin !== "expert" || !currentRoomId) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (dx > 70 && Math.abs(dx) > Math.abs(dy) * 2) { // 右方向へ十分な横スワイプ
+      backToRooms();
+      activateTab("expert");
+    }
+  }, { passive: true });
+})();
 
 document.getElementById("btnNewRoom").addEventListener("click", createRoom);
 document.getElementById("btnBackRooms").addEventListener("click", backToRooms);
@@ -1673,7 +1698,7 @@ expertList.addEventListener("click", async e => {
 
   // 元の相談(トークルーム)を開く
   if (btn.dataset.action === "open-room") {
-    if (c.roomId) { activateTab("chat"); openRoom(c.roomId); }
+    if (c.roomId) { activateTab("chat"); openRoom(c.roomId); roomOrigin = "expert"; }
     return;
   }
 
