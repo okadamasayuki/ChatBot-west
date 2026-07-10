@@ -347,10 +347,27 @@
       <textarea id="firebaseInput" placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}'></textarea>
       <p style="margin-bottom:4px;">② ワークスペース合言葉(チームで同じ文字列を共有。これを知る人だけが同じデータにアクセスできます)</p>
       <input type="password" id="workspaceInput" placeholder="例: nishi-kaikei-2026-8f3a">
-      <div class="warn">共有ONの場合、内規と質問⇄回答は Firebase(クラウド)に保存されます。合言葉は共有パスワードとして厳重に管理してください。セットアップ手順は README を参照。</div>
+      <div class="warn">共有ONの場合、内規と質問⇄回答は Firebase(クラウド)に保存され、ログインした担当者のみアクセスできます。合言葉は共有パスワードとして厳重に管理してください。セットアップ手順は README を参照。</div>
+      <div id="authInfo" style="font-size:12px;color:#06a04a;margin-bottom:8px;"></div>
+      <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
       <div class="row">
         <button class="btn secondary" id="btnClearData">全データ削除</button>
         <button class="btn primary" id="btnSaveKey">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ログインモーダル -->
+  <div class="modal-bg" id="modalLogin" style="z-index:60;">
+    <div class="modal">
+      <h2>担当者ログイン</h2>
+      <p>チーム共有を利用するにはログインが必要です。管理者に発行されたアカウントでログインしてください。</p>
+      <input type="email" id="loginEmail" placeholder="メールアドレス" autocomplete="username">
+      <input type="password" id="loginPassword" placeholder="パスワード" autocomplete="current-password">
+      <div id="loginError" style="color:#c0392b;font-size:12px;margin-bottom:10px;display:none;"></div>
+      <div class="row">
+        <button class="btn secondary" id="btnSignup">新規登録</button>
+        <button class="btn primary" id="btnLogin">ログイン</button>
       </div>
     </div>
   </div>
@@ -472,7 +489,7 @@ function withNaiki(base) {
    内規・チャット・エスカレーション案件をクラウドで共有する。
    合言葉のSHA-256をワークスペースIDにするため、合言葉を知る担当者だけが
    同じデータにアクセスできる(合言葉は共有パスワードとして扱うこと)。 */
-const cloud = { on: false, fs: null, db: null, wid: null, unsub: [] };
+const cloud = { on: false, configured: false, fs: null, authMod: null, db: null, auth: null, user: null, wid: null, unsub: [], subscribed: false, authUnsub: null };
 
 async function sha256hex(s) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -486,15 +503,30 @@ function setCloudStatus(txt, ok) {
   if (m) { m.textContent = txt; m.style.color = ok ? "#06a04a" : "#666"; }
 }
 
-async function initCloud() {
-  // 既存リスナーを解除
+function unsubData() {
   cloud.unsub.forEach(u => { try { u(); } catch (e) {} });
   cloud.unsub = [];
+  cloud.subscribed = false;
+}
+
+function updateAuthUI() {
+  const btn = document.getElementById("btnLogout");
+  if (btn) btn.style.display = cloud.user ? "inline-block" : "none";
+  const info = document.getElementById("authInfo");
+  if (info) info.textContent = cloud.user ? ("ログイン中: " + (cloud.user.email || "")) : (cloud.configured ? "未ログイン" : "");
+}
+
+async function initCloud() {
+  // 既存の接続を解除
+  if (cloud.authUnsub) { try { cloud.authUnsub(); } catch (e) {} cloud.authUnsub = null; }
+  unsubData();
   cloud.on = false;
+  cloud.configured = false;
+  cloud.user = null;
 
   const cfgStr = (state.firebaseConfig || "").trim();
   const code = (state.workspaceCode || "").trim();
-  if (!cfgStr || !code) { setCloudStatus("ローカルのみ", false); return; }
+  if (!cfgStr || !code) { setCloudStatus("ローカルのみ", false); updateAuthUI(); return; }
 
   let cfg;
   try { cfg = JSON.parse(cfgStr); } catch (e) { setCloudStatus("Firebase設定のJSONが不正", false); return; }
@@ -502,18 +534,38 @@ async function initCloud() {
   setCloudStatus("接続中…", false);
   try {
     const appMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const authMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
     const fsMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js");
-    const app = appMod.initializeApp(cfg);
+    const app = appMod.getApps().length ? appMod.getApps()[0] : appMod.initializeApp(cfg);
     cloud.fs = fsMod;
+    cloud.authMod = authMod;
     cloud.db = fsMod.getFirestore(app);
+    cloud.auth = authMod.getAuth(app);
     cloud.wid = await sha256hex(code);
-    subscribeCloud();
-    cloud.on = true;
-    setCloudStatus("☁ 共有中", true);
+    cloud.configured = true;
+
+    // ログイン状態に応じて共有を開始/停止
+    cloud.authUnsub = authMod.onAuthStateChanged(cloud.auth, user => {
+      cloud.user = user;
+      if (user) {
+        closeLogin();
+        if (!cloud.subscribed) { subscribeCloud(); cloud.subscribed = true; }
+        cloud.on = true;
+        setCloudStatus("☁ " + (user.email || "共有中"), true);
+      } else {
+        cloud.on = false;
+        unsubData();
+        // 共有データが画面に残らないようにクリア(ローカル保存はしない)
+        state.messages = []; state.cases = []; state.qaLog = [];
+        renderChat(); renderExpert(); updateBadges();
+        setCloudStatus("要ログイン", false);
+        openLogin();
+      }
+      updateAuthUI();
+    });
   } catch (e) {
     console.error(e);
     setCloudStatus("接続失敗", false);
-    addMessage({ id: uid(), role: "system", text: "⚠ クラウド接続に失敗しました: " + (e.message || e), ts: nowIso() });
   }
 }
 
@@ -702,6 +754,7 @@ function sendQuestion() {
 async function submitQuestion(text) {
   if (!text || sending) return;
   if (!state.apiKey) { openSettings(); return; }
+  if (cloud.configured && !cloud.user) { openLogin(); return; } // 共有ONならログイン必須
 
   sending = true;
   btnSend.disabled = true;
@@ -933,10 +986,11 @@ function openSettings() {
   naikiInput.value = state.naiki || "";
   firebaseInput.value = state.firebaseConfig || "";
   workspaceInput.value = state.workspaceCode || "";
+  updateAuthUI();
   modalSettings.classList.add("show");
 }
 document.getElementById("btnSettings").addEventListener("click", openSettings);
-document.getElementById("btnSaveKey").addEventListener("click", async () => {
+document.getElementById("btnSaveKey").addEventListener("click", () => {
   state.apiKey = apiKeyInput.value.trim();
   state.naiki = naikiInput.value;
   const cloudChanged = (state.firebaseConfig !== firebaseInput.value.trim()) ||
@@ -946,10 +1000,59 @@ document.getElementById("btnSaveKey").addEventListener("click", async () => {
   saveState();
   modalSettings.classList.remove("show");
   if (cloudChanged) {
-    await initCloud();       // 接続設定が変わったら繋ぎ直す
+    location.reload();        // 接続設定が変わったら再読み込みして繋ぎ直す(Firebase初期化を一度だけに)
   } else {
     saveNaikiShared();        // 内規のみ変更 → 共有中なら反映
   }
+});
+
+/* ================= ログイン (Firebase Authentication) ================= */
+const modalLogin = document.getElementById("modalLogin");
+function openLogin() {
+  document.getElementById("loginError").style.display = "none";
+  modalLogin.classList.add("show");
+}
+function closeLogin() {
+  modalLogin.classList.remove("show");
+  const p = document.getElementById("loginPassword");
+  if (p) p.value = "";
+}
+function showLoginError(msg) {
+  const e = document.getElementById("loginError");
+  e.textContent = msg;
+  e.style.display = "block";
+}
+function authErrMsg(e) {
+  const c = (e && e.code) || "";
+  if (c.includes("invalid-credential") || c.includes("wrong-password") || c.includes("user-not-found")) return "メールアドレスまたはパスワードが違います。";
+  if (c.includes("invalid-email")) return "メールアドレスの形式が正しくありません。";
+  if (c.includes("email-already-in-use")) return "このメールアドレスは既に登録されています。ログインしてください。";
+  if (c.includes("weak-password")) return "パスワードは6文字以上にしてください。";
+  if (c.includes("too-many-requests")) return "試行回数が多すぎます。しばらく待ってから再度お試しください。";
+  if (c.includes("operation-not-allowed")) return "メール/パスワード認証が有効になっていません(Firebaseコンソールで有効化してください)。";
+  return "認証に失敗しました: " + (e.message || c);
+}
+async function doAuth(kind) {
+  if (!cloud.auth) { showLoginError("先に設定(⚙)でFirebaseとワークスペースを設定してください。"); return; }
+  const email = document.getElementById("loginEmail").value.trim();
+  const pass = document.getElementById("loginPassword").value;
+  if (!email || !pass) { showLoginError("メールアドレスとパスワードを入力してください。"); return; }
+  try {
+    if (kind === "signup") await cloud.authMod.createUserWithEmailAndPassword(cloud.auth, email, pass);
+    else await cloud.authMod.signInWithEmailAndPassword(cloud.auth, email, pass);
+    // 成功すると onAuthStateChanged が発火し closeLogin される
+  } catch (e) {
+    showLoginError(authErrMsg(e));
+  }
+}
+document.getElementById("btnLogin").addEventListener("click", () => doAuth("login"));
+document.getElementById("btnSignup").addEventListener("click", () => doAuth("signup"));
+document.getElementById("loginPassword").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); doAuth("login"); }
+});
+document.getElementById("btnLogout").addEventListener("click", async () => {
+  if (cloud.auth) { try { await cloud.authMod.signOut(cloud.auth); } catch (e) {} }
+  modalSettings.classList.remove("show");
 });
 document.getElementById("btnClearData").addEventListener("click", () => {
   if (confirm("この端末の設定(APIキー・Firebase設定・合言葉)とローカル履歴を削除します。クラウド上の共有データは削除されません。よろしいですか?")) {
