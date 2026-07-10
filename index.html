@@ -1062,6 +1062,9 @@ function subscribeCloud() {
     snap => {
       rooms = snap.docs.map(dd => dd.data());
       if (!currentRoomId) renderChat(); else updateRoomBar();
+      // 相談の完了状態はBAタブの表示・バッジ件数にも影響する(連動)
+      if (!expertEditing) renderExpert();
+      updateBadges();
     },
     err => console.error("相談一覧の購読エラー:", err)
   ));
@@ -1589,6 +1592,8 @@ async function toggleRoomDone(roomId) {
   const status = r.status === "done" ? "" : "done";
   r.status = status; // 先に画面へ反映(Firestoreの反映を待たない)
   if (!currentRoomId) renderChat(); else updateRoomBar();
+  if (!expertEditing) renderExpert(); // BAタブ・バッジも連動して更新
+  updateBadges();
   try {
     await cloud.fs.updateDoc(cloudRoomDoc(roomId), { status });
   } catch (e) {
@@ -1770,12 +1775,17 @@ qInput.addEventListener("keydown", e => {
 const expertList = document.getElementById("expertList");
 let expertEditing = null; // 編集中の案件ID(クラウド再描画で編集中textareaを壊さないため)
 
+// 完了にした相談の案件はBAタブに出さない(相談一覧と連動。完了を取り消せば戻る)
+function isDoneRoomId(roomId) {
+  return rooms.some(r => r.id === roomId && r.status === "done");
+}
 function renderExpert() {
   expertList.innerHTML = "";
-  const open = state.cases.filter(c => c.status !== "answered");
-  const done = state.cases.filter(c => c.status === "answered");
+  const visible = state.cases.filter(c => !isDoneRoomId(c.roomId));
+  const open = visible.filter(c => c.status !== "answered");
+  const done = visible.filter(c => c.status === "answered");
 
-  if (state.cases.length === 0) {
+  if (visible.length === 0) {
     expertList.innerHTML = '<div class="empty-note">BAへの確認依頼はありません。<br>AIが回答できない質問が届くとここに表示されます。</div>';
     return;
   }
@@ -2338,7 +2348,8 @@ async function extractPdfText(arrayBuffer) {
 /* ================= バッジ・タブ ================= */
 const badgeExpert = document.getElementById("badgeExpert");
 function updateBadges() {
-  const pending = state.cases.filter(c => c.status !== "answered").length;
+  // 完了にした相談の案件は件数に含めない(BAタブの表示と連動)
+  const pending = state.cases.filter(c => c.status !== "answered" && !isDoneRoomId(c.roomId)).length;
   badgeExpert.textContent = pending;
   badgeExpert.classList.toggle("show", pending > 0);
 }
