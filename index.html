@@ -1519,6 +1519,17 @@ function renderChat() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
+// ブラウザ履歴: 相談を開いたら履歴を1つ積み、ブラウザ/スマホの「戻る」で一覧へ戻れるようにする
+let roomHistPushed = false;
+function pushRoomHistory() {
+  if (roomHistPushed) return;
+  try { history.pushState({ room: 1 }, ""); roomHistPushed = true; } catch (e) {}
+}
+window.addEventListener("popstate", () => {
+  roomHistPushed = false;
+  if (currentRoomId) closeRoomView();
+});
+
 // 新規ルーム作成
 // 新規相談: この時点では保存せず、最初のメッセージ送信時に保存する(空の相談を残さない)
 function createRoom() {
@@ -1532,6 +1543,7 @@ function createRoom() {
   };
   currentRoomId = pendingRoom.id;
   roomMessages = [];
+  pushRoomHistory();
   renderChat();
 }
 
@@ -1546,11 +1558,17 @@ function openRoom(id) {
     if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
     roomMessages = state.roomMsgs[id] || [];
   }
+  pushRoomHistory();
   renderChat();
 }
 
-// 一覧へ戻る
+// 一覧へ戻る(画面の←ボタン・スワイプから)。
+// 履歴を積んでいる場合はhistory.back()経由にして、ブラウザの「戻る」と状態を揃える
 function backToRooms() {
+  if (roomHistPushed) { history.back(); return; } // popstate側でcloseRoomViewが呼ばれる
+  closeRoomView();
+}
+function closeRoomView() {
   pendingRoom = null; // 未送信の新規相談は破棄(空の相談を残さない)
   roomOrigin = null;
   currentRoomId = null;
