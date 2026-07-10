@@ -394,17 +394,6 @@
   .sample-add:disabled { opacity: .6; cursor: default; }
   .sample-dl { display: flex; align-items: center; justify-content: center; width: 44px; flex-shrink: 0; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; color: #06874a; text-decoration: none; font-size: 15px; }
   .sample-dl:hover { background: #e3f6e9; }
-  .room-naiki-btn {
-    flex-shrink: 0;
-    margin-left: 8px;
-    width: 34px; height: 34px;
-    border: 1px solid #d4d9e2;
-    border-radius: 8px;
-    background: #f5f7fa;
-    font-size: 15px;
-    cursor: pointer;
-  }
-  .room-naiki-btn:hover { background: #e9eef5; border-color: #06c755; }
   .room-sel-wrap {
     display: flex; align-items: center; justify-content: center;
     padding: 12px 10px; margin: -12px -2px -12px -8px;
@@ -1447,10 +1436,6 @@ function renderRoomList() {
     else if (openCase) tag = '<div class="room-tag">BA回答待ち</div>';
     else tag = '<div class="room-tag waiting">担当者回答待ち</div>';
     const mine = canDeleteRoom(r); // 自分の相談のみスワイプ削除可(財務は不可)
-    // 財務は一覧から直接、その相談をもとに社内ルールを更新できる
-    const naikiBtn = isExpertList
-      ? `<button class="room-naiki-btn" data-naiki-room="${r.id}" title="この相談から社内ルールを更新" type="button">📋</button>`
-      : "";
     // 財務は複数の相談を選択してまとめて社内ルールを更新できる
     // (ラベルで包んで当たり判定を広げる。チェックボックス周辺のクリックで相談が開かないように)
     const selBox = isExpertList
@@ -1467,7 +1452,6 @@ function renderRoomList() {
           ${tag}
         </div>
         <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>
-        ${naikiBtn}
       </div>`;
     chatLog.appendChild(row);
   }
@@ -1763,8 +1747,6 @@ chatLog.addEventListener("click", e => {
   }
   const batch = e.target.closest("#roomBatchNaiki");
   if (batch) { openRoomNaikiModal([...selectedRooms]); return; }
-  const nb = e.target.closest("[data-naiki-room]");
-  if (nb) { openRoomNaikiModal(nb.dataset.naikiRoom); return; }
   const del = e.target.closest(".room-del");
   if (del) { deleteRoom(del.dataset.del); return; }
   const roomEl = e.target.closest(".room-item");
