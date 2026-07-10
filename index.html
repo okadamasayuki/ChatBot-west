@@ -404,6 +404,10 @@
     box-sizing: border-box;
   }
   #extractText:focus { border-color: #06c755; }
+  .sample-pdf { margin-bottom: 14px; }
+  .sample-pdf-links { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .sample-link { font-size: 12.5px; color: #06874a; text-decoration: none; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; padding: 8px 10px; }
+  .sample-link:hover { background: #e3f6e9; }
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
   .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
@@ -545,14 +549,25 @@
   <!-- 社内マニュアルパネル(財務のみ) -->
   <div class="panel" id="panel-manual">
     <div class="pad-scroll">
-      <div class="pad-note">社内マニュアル — アップロードした内容も回答時にAIが参照します(テキスト / Markdown)。</div>
+      <div class="pad-note">社内マニュアル — アップロードした内容も回答時にAIが参照します(PDF / テキスト / Markdown)。PDFは中の文字を自動で読み取ります。</div>
       <input id="manualTitle" placeholder="タイトル(例: 経費精算マニュアル)">
-      <textarea id="manualText" style="min-height:120px;" placeholder="本文を貼り付け、または下のファイルを選択"></textarea>
+      <textarea id="manualText" style="min-height:120px;" placeholder="本文を貼り付け、または下のファイル(PDF/テキスト)を選択"></textarea>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-        <input type="file" id="manualFile" accept=".txt,.md,.markdown,text/plain,text/markdown" style="flex:1;min-width:160px;margin-bottom:0;">
+        <input type="file" id="manualFile" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" style="flex:1;min-width:160px;margin-bottom:0;">
         <button class="btn primary" id="btnAddManual">追加</button>
       </div>
-      <button class="btn secondary" id="btnAddSampleManuals" style="margin-bottom:12px;">サンプルマニュアルを追加(デモ)</button>
+
+      <div class="sample-pdf">
+        <div class="nr-title">📄 サンプルマニュアル(PDF)</div>
+        <div class="nr-hint">下のPDFをダウンロードし、上の「ファイルを選択」からアップロードすると、AIが中身を参照できます。</div>
+        <div class="sample-pdf-links">
+          <a class="sample-link" href="samples/manuals/keihi.pdf" download="経費精算マニュアル.pdf">📄 経費精算マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/kotei.pdf" download="固定資産管理マニュアル.pdf">📄 固定資産管理マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/kosai.pdf" download="交際費・会議費マニュアル.pdf">📄 交際費・会議費マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/invoice.pdf" download="インボイス・消費税マニュアル.pdf">📄 インボイス・消費税マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/kyuyo.pdf" download="給与・社会保険マニュアル.pdf">📄 給与・社会保険マニュアル.pdf</a>
+        </div>
+      </div>
       <div id="manualList"></div>
 
       <div class="naiki-extract">
@@ -1854,16 +1869,34 @@ function deleteManual(id) {
     manuals = manuals.filter(m => m.id !== id); renderManual();
   }
 }
-document.getElementById("manualFile").addEventListener("change", e => {
+document.getElementById("manualFile").addEventListener("change", async e => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    document.getElementById("manualText").value = String(reader.result || "");
-    const tEl = document.getElementById("manualTitle");
-    if (!tEl.value.trim()) tEl.value = f.name.replace(/\.(txt|md|markdown)$/i, "");
-  };
-  reader.readAsText(f);
+  const txtEl = document.getElementById("manualText");
+  const tEl = document.getElementById("manualTitle");
+  const setTitle = re => { if (!tEl.value.trim()) tEl.value = f.name.replace(re, ""); };
+  const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+  if (isPdf) {
+    const prev = txtEl.value;
+    txtEl.value = "PDFを読み込み中...";
+    try {
+      const buf = await f.arrayBuffer();
+      const text = await extractPdfText(buf);
+      txtEl.value = text || "";
+      setTitle(/\.pdf$/i);
+      if (!text) alert("PDFから文字を抽出できませんでした。画像だけのスキャンPDFの可能性があります。");
+    } catch (err) {
+      txtEl.value = prev;
+      alert("PDFの読み込みに失敗しました: " + err.message);
+    }
+  } else {
+    const reader = new FileReader();
+    reader.onload = () => {
+      txtEl.value = String(reader.result || "");
+      setTitle(/\.(txt|md|markdown)$/i);
+    };
+    reader.readAsText(f);
+  }
 });
 document.getElementById("btnAddManual").addEventListener("click", () => {
   addManual(document.getElementById("manualTitle").value, document.getElementById("manualText").value);
@@ -1873,45 +1906,31 @@ document.getElementById("manualList").addEventListener("click", e => {
   if (b) deleteManual(b.dataset.del);
 });
 
-// サンプルマニュアル(デモ用)
-function sampleManuals() {
-  return [
-    { id: "sample-manual-keihi", title: "経費精算マニュアル", content: "## 経費精算のルール\n\n- 立替経費は、領収書またはインボイス(適格請求書)を添付して申請する。\n- 交通費は原則として実費精算。ICカード利用分は利用明細を添付する。\n- 1件1万円を超える接待・会議は、事前に上長の承認を得る。\n- 精算は毎月末締め、翌月10日払い。締め後の申請は翌月扱いとする。\n- 私的利用と業務利用が混在する費用(通信費など)は、業務按分率を明記する。" },
-    { id: "sample-manual-kotei", title: "固定資産管理マニュアル", content: "## 固定資産の計上・減価償却\n\n- 取得価額10万円未満の物品は消耗品費として一括費用処理する。\n- 10万円以上20万円未満は一括償却資産として3年均等償却できる。\n- 30万円未満は中小企業の少額減価償却資産の特例で即時償却できる(年間合計300万円まで)。\n- 減価償却は定額法を原則とする。\n- 除却・売却時は、除却損/売却損益を計上し、固定資産台帳から除く。" },
-    { id: "sample-manual-kosai", title: "交際費・会議費の区分マニュアル", content: "## 交際費と会議費の区分\n\n- 1人あたり5,000円以下の飲食費は、参加者と目的を記録すれば会議費として処理できる。\n- 5,000円を超える取引先との飲食は交際費として処理する。\n- 社内のみの飲食は、原則として交際費ではなく福利厚生費または会議費で判断する。\n- 慶弔費は社内規程の範囲内で福利厚生費、範囲外は交際費とする。\n- 交際費は損金算入限度額に注意する(中小企業は年800万円まで)。" },
-    { id: "sample-manual-invoice", title: "インボイス・消費税処理マニュアル", content: "## インボイス制度と消費税\n\n- 仕入税額控除には、原則として適格請求書(インボイス)の保存が必要。\n- 免税事業者からの仕入は、経過措置により一定割合のみ控除可能(段階的に縮小)。\n- 税区分は、標準税率10%と軽減税率8%(飲食料品・定期購読新聞)を正しく区分する。\n- 適格請求書発行事業者の登録番号(T+13桁)を請求書に記載する。\n- 3万円未満でもインボイスの保存を原則とする(一定の特例を除く)。" },
-    { id: "sample-manual-kyuyo", title: "給与・社会保険マニュアル", content: "## 給与計算と社会保険\n\n- 給与は毎月20日締め、当月25日払い。\n- 社会保険料は標準報酬月額に基づき計算し、4〜6月の報酬で定時決定(算定基礎届)を行う。\n- 通勤手当は非課税限度額の範囲内で非課税、超過分は課税対象とする。\n- 年末調整は12月給与で実施し、扶養控除等申告書・保険料控除申告書を回収する。\n- 賞与支払時は賞与支払届を提出し、社会保険料を控除する。" }
-  ];
+// PDFからテキストを抽出(pdf.js を動的読み込み)
+const PDFJS_VER = "4.2.67";
+let _pdfjs = null;
+async function loadPdfjs() {
+  if (_pdfjs) return _pdfjs;
+  const lib = await import(`https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.min.mjs`);
+  lib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.worker.min.mjs`;
+  _pdfjs = lib;
+  return lib;
 }
-async function addSampleManuals() {
-  const samples = sampleManuals();
-  let added = 0;
-  for (const s of samples) {
-    if (manuals.some(m => m.id === s.id)) continue;
-    const m = { id: s.id, title: s.title, content: s.content, updatedAt: nowIso() };
-    if (cloud.on) {
-      await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "manuals", m.id), m);
-    } else {
-      manuals.push(m);
-    }
-    added++;
+async function extractPdfText(arrayBuffer) {
+  const lib = await loadPdfjs();
+  const pdf = await lib.getDocument({
+    data: arrayBuffer,
+    cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/cmaps/`,
+    cMapPacked: true // 日本語(CID)フォントの文字抽出に必要
+  }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join("") + "\n";
   }
-  if (!cloud.on) renderManual();
-  return added;
+  return text.trim();
 }
-document.getElementById("btnAddSampleManuals").addEventListener("click", async () => {
-  const btn = document.getElementById("btnAddSampleManuals");
-  btn.disabled = true;
-  btn.textContent = "追加中...";
-  try {
-    const n = await addSampleManuals();
-    alert(n > 0 ? `サンプルマニュアルを${n}件追加しました。` : "サンプルマニュアルは既に追加されています。");
-  } catch (err) {
-    alert("追加に失敗しました: " + err.message);
-  }
-  btn.disabled = false;
-  btn.textContent = "サンプルマニュアルを追加(デモ)";
-});
 
 // マニュアルから内規を抽出
 document.getElementById("btnExtractNaiki").addEventListener("click", async () => {
