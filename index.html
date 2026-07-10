@@ -563,18 +563,6 @@
         <input type="file" id="manualFile" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" style="width:100%;margin-bottom:0;">
         <div id="manualAddStatus" style="font-size:12px;margin-top:6px;display:none;"></div>
       </div>
-
-      <div class="sample-pdf">
-        <div class="nr-title">📄 サンプルマニュアル(PDF)</div>
-        <div class="nr-hint">下のPDFをダウンロードし、上の「ファイルを選択」からアップロードすると、AIが中身を参照できます。</div>
-        <div class="sample-pdf-links">
-          <a class="sample-link" href="samples/manuals/keihi.pdf" download="経費精算マニュアル.pdf">📄 経費精算マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/kotei.pdf" download="固定資産管理マニュアル.pdf">📄 固定資産管理マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/kosai.pdf" download="交際費・会議費マニュアル.pdf">📄 交際費・会議費マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/invoice.pdf" download="インボイス・消費税マニュアル.pdf">📄 インボイス・消費税マニュアル.pdf</a>
-          <a class="sample-link" href="samples/manuals/kyuyo.pdf" download="給与・社会保険マニュアル.pdf">📄 給与・社会保険マニュアル.pdf</a>
-        </div>
-      </div>
       <div id="manualList"></div>
 
       <div class="naiki-extract">
@@ -605,6 +593,18 @@
       <div id="authInfo" style="font-size:12px;color:#06a04a;margin-bottom:8px;"></div>
       <button class="btn secondary" id="btnAddSamples" style="margin-bottom:12px;">サンプル相談を追加(デモ)</button>
       <button class="btn secondary" id="btnLogout" style="display:none;margin-bottom:12px;">ログアウト</button>
+
+      <div class="sample-pdf" style="margin-top:4px;">
+        <div class="nr-title">📄 サンプルマニュアル(PDF)</div>
+        <div class="nr-hint">ダウンロードして、マニュアルタブの「ファイルを選択」からアップロードすると、AIが中身を参照します。</div>
+        <div class="sample-pdf-links">
+          <a class="sample-link" href="samples/manuals/keihi.pdf" download="経費精算マニュアル.pdf">📄 経費精算マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/kotei.pdf" download="固定資産管理マニュアル.pdf">📄 固定資産管理マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/kosai.pdf" download="交際費・会議費マニュアル.pdf">📄 交際費・会議費マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/invoice.pdf" download="インボイス・消費税マニュアル.pdf">📄 インボイス・消費税マニュアル.pdf</a>
+          <a class="sample-link" href="samples/manuals/kyuyo.pdf" download="給与・社会保険マニュアル.pdf">📄 給与・社会保険マニュアル.pdf</a>
+        </div>
+      </div>
       <div class="row">
         <button class="btn secondary" id="btnClearData" style="display:none;">この端末をリセット</button>
         <button class="btn primary" id="btnCloseSettings">閉じる</button>
@@ -867,9 +867,11 @@ function activateTab(name) {
   if (panel) panel.classList.add("active");
   if (name === "naiki") renderNaiki();
   if (name === "manual") renderManual();
+  try { localStorage.setItem("activeTab", name); } catch (e) {} // 再読み込み後も同じタブを維持
 }
 
 // 役割に応じてタブ・相談フィルタを切替
+let tabRestored = false; // 再読み込み時のタブ復元を初回のみ行う
 function applyRole() {
   const questionerOnly = cloud.on && cloud.role === "questioner";
   const isExpert = cloud.on && cloud.role === "expert";
@@ -884,6 +886,16 @@ function applyRole() {
   const active = document.querySelector("#tabs .tab.active");
   if (active && active.style.display === "none") activateTab("chat");
   if (questionerOnly) activateTab("chat");
+  // 再読み込み後、前回のタブを復元(財務のみ・初回ログイン時の一度だけ)
+  if (isExpert && !tabRestored) {
+    tabRestored = true;
+    let saved = null;
+    try { saved = localStorage.getItem("activeTab"); } catch (e) {}
+    if (saved) {
+      const t = document.querySelector(`#tabs .tab[data-tab="${saved}"]`);
+      if (t && t.style.display !== "none") activateTab(saved);
+    }
+  }
   // フィルタ: 担当者は「自分の相談/全員の相談」、財務は「全員の相談」のみ
   const allBtn = document.querySelector('#roomFilters .rf[data-filter="all"]');
   const mineBtn = document.querySelector('#roomFilters .rf[data-filter="mine"]');
