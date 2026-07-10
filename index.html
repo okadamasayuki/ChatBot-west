@@ -302,6 +302,9 @@
     margin-bottom: 6px;
   }
   .case .q-label.done { background: #06c755; }
+  .case button.q-label { border: none; cursor: pointer; font-family: inherit; }
+  .case button.q-label:hover { opacity: .9; }
+  .case .q-label.status-btn.mine { background: #06a04a; } /* 自分が対応中 */
   .case .q-text { font-size: 14px; font-weight: 600; line-height: 1.55; margin-bottom: 8px; white-space: pre-wrap; }
   .case .q-text.q-open { cursor: pointer; color: #0a6ebd; }
   .case .q-text.q-open:hover { text-decoration: underline; }
@@ -1653,26 +1656,22 @@ function renderCase(c) {
   const div = document.createElement("div");
   div.className = "case";
 
-  const label = c.status === "answered"
-    ? '<span class="q-label done">✓ 回答済み</span>'
-    : '<span class="q-label">要対応</span>';
+  // ステータス＋対応者を統合したラベル(要対応 / 対応中：対応者 / 対応済み：対応者)
+  // 未回答はクリックで自分を対応者にON/OFF(トグル)できる
+  let label;
+  if (c.status === "answered") {
+    const who = c.handledBy ? "：" + escapeHtml(c.handledBy) : "";
+    label = `<span class="q-label done">✓ 対応済み${who}</span>`;
+  } else if (c.handledBy) {
+    const mine = c.handledBy === myName();
+    label = `<button class="q-label status-btn${mine ? " mine" : ""}" data-action="set-handler" data-case="${c.id}">対応中：${escapeHtml(c.handledBy)}</button>`;
+  } else {
+    label = `<button class="q-label status-btn" data-action="set-handler" data-case="${c.id}">要対応</button>`;
+  }
 
   // 質問タイトルをクリックすると元の相談(トークルーム)を開く
   const titleAttr = c.roomId ? ` class="q-text q-open" data-action="open-room" data-case="${c.id}" title="クリックで元の相談を開く"` : ` class="q-text"`;
   let html = `${label}<div${titleAttr}>${escapeHtml(c.question)}</div>`;
-
-  // 対応者(回答前から登録できる。クリックで自分をON/OFF)
-  let hrow = "";
-  if (c.status === "answered") {
-    if (c.handledBy) hrow += `<span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>`;
-  } else {
-    // 対応者はクリックで自分をON/OFF(トグル)
-    const mine = c.handledBy && c.handledBy === myName();
-    const cls = mine ? "btn primary tiny" : "btn secondary tiny";
-    const txt = c.handledBy ? `🧑‍💼 対応者: ${escapeHtml(c.handledBy)}` : "🧑‍💼 対応者を登録";
-    hrow += `<button class="${cls}" data-action="set-handler" data-case="${c.id}">${txt}</button>`;
-  }
-  if (hrow) html += `<div class="handler-row">${hrow}</div>`;
 
   if (c.status === "answered") {
     html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>`;
