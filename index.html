@@ -945,7 +945,14 @@ function updateAuthUI() {
 
 function roleLabel(r) { return r === "expert" ? "財務" : "担当者"; }
 
+let activeTabName = "chat";
 function activateTab(name) {
+  // タブを移動したらBAタブの表示順の固定を解除する(次の表示で通常の並びに戻る)
+  if (name !== activeTabName) {
+    expertOrderPinned = null;
+    if (name === "expert" && !expertEditing) renderExpert();
+  }
+  activeTabName = name;
   document.querySelectorAll("#tabs .tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   const panel = document.getElementById("panel-" + name);
@@ -1937,6 +1944,9 @@ let expertEditing = null; // 編集中の案件ID(クラウド再描画で編集
 function isDoneRoomId(roomId) {
   return rooms.some(r => r.id === roomId && r.status === "done");
 }
+// BAタブ滞在中の表示順の固定(案件IDの並び)。
+// 「OK — 質問者に送信」で対応済みになっても、タブを離れるまでは同じ位置に表示する
+let expertOrderPinned = null;
 function renderExpert() {
   expertList.innerHTML = "";
   const visible = state.cases.filter(c => !isDoneRoomId(c.roomId));
@@ -1947,6 +1957,18 @@ function renderExpert() {
     expertList.innerHTML = '<div class="empty-note">BAへの確認依頼はありません。<br>AIが回答できない質問が届くとここに表示されます。</div>';
     return;
   }
+  let ordered = [...open, ...done];
+  if (expertOrderPinned) {
+    // 固定済みの並びを維持する(新しく届いた案件は末尾へ)
+    const pos = new Map(expertOrderPinned.map((id, i) => [id, i]));
+    ordered = ordered.slice().sort((a, b) => {
+      const pa = pos.has(a.id) ? pos.get(a.id) : Infinity;
+      const pb = pos.has(b.id) ? pos.get(b.id) : Infinity;
+      if (pa === pb) return 0; // どちらも新規は元の並び(安定ソート)のまま
+      return pa - pb;
+    });
+  }
+  expertOrderPinned = ordered.map(c => c.id);
   // 自分が対応者になっていない未回答案件があるときだけ、一覧の先頭に案内を1回表示
   if (open.some(c => !(myName() && c.handledBy === myName()))) {
     const hint = document.createElement("div");
@@ -1954,7 +1976,7 @@ function renderExpert() {
     hint.textContent = "回答するには「要対応」をタップして、自分を対応者にしてください。";
     expertList.appendChild(hint);
   }
-  for (const c of [...open, ...done]) expertList.appendChild(renderCase(c));
+  for (const c of ordered) expertList.appendChild(renderCase(c));
 }
 
 
