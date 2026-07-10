@@ -442,7 +442,7 @@
       <button id="btnBackRooms" title="一覧へ戻る">←</button>
       <div id="roomFilters">
         <button class="rf active" data-filter="mine">自分の相談</button>
-        <button class="rf" data-filter="all">相談一覧</button>
+        <button class="rf" data-filter="all">全員の相談</button>
       </div>
       <div id="roomTitle">相談</div>
       <button id="btnNewRoom">＋ 新規</button>
@@ -733,10 +733,9 @@ function applyRole() {
   const active = document.querySelector("#tabs .tab.active");
   if (active && active.style.display === "none") activateTab("chat");
   if (questionerOnly) activateTab("chat");
-  // 担当者は「相談一覧(全体)」を使えない。財務は両方使える。
+  // 「自分の相談」「全員の相談」は担当者・財務とも両方使える
   const allBtn = document.querySelector('#roomFilters .rf[data-filter="all"]');
-  if (allBtn) allBtn.style.display = questionerOnly ? "none" : "";
-  if (questionerOnly) roomFilter = "mine";
+  if (allBtn) allBtn.style.display = "";
   updateFilterButtons();
 }
 
