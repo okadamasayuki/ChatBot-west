@@ -1573,23 +1573,23 @@ function backToRooms() {
   renderChat();
 }
 
-// チャット(相談)表示中のページ全体スワイプ(Tinder風に指へ追従して動く):
-//   左スワイプ → 相談一覧へ戻る
-//   右スワイプ → BAタブの該当質問(案件)へ移動(財務のみ。案件がなければBAタブへ)
+// チャット(相談)表示中のページ全体スワイプ(指へ追従してほぼ真横に動く):
+//   右スワイプ → 相談一覧へ戻る
+//   左スワイプ → BAタブの該当質問(案件)へ移動(財務のみ。案件がなければBAタブへ)
 (function setupChatSwipe() {
   const panel = document.getElementById("panel-chat");
   if (!panel) return;
   panel.style.touchAction = "pan-y"; // 縦スクロールはブラウザに任せ、横はこちらで扱う
   let sx = 0, sy = 0, dx = 0, dragging = false, horiz = false;
-  const canRight = () => cloud.on && cloud.role === "expert";
+  const canLeft = () => cloud.on && cloud.role === "expert"; // 左(BAへ)は財務のみ
   function setDrag(x, animate) {
     panel.style.transition = animate ? "transform .22s ease" : "none";
-    panel.style.transform = x ? `translateX(${x}px) rotate(${(x / 24).toFixed(2)}deg)` : "";
+    panel.style.transform = x ? `translateX(${x}px)` : "";
   }
   function flyOut(dir, done) {
     const w = panel.clientWidth || 360;
     panel.style.transition = "transform .22s ease-out";
-    panel.style.transform = `translateX(${dir * w * 1.2}px) rotate(${dir * 10}deg)`;
+    panel.style.transform = `translateX(${dir * w * 1.2}px)`;
     setTimeout(() => {
       done();
       // 遷移後は無アニメーションで元の位置に戻しておく
@@ -1613,8 +1613,8 @@ function backToRooms() {
       else if (Math.abs(dy) > 16) { dragging = false; setDrag(0, false); return; }
     }
     if (horiz) {
-      // 右スワイプの遷移先がないユーザーは右方向を重くする(引っぱっても戻る予告)
-      const x = (dx > 0 && !canRight()) ? dx / 4 : dx;
+      // 左スワイプの遷移先がないユーザーは左方向を重くする(引っぱっても戻る予告)
+      const x = (dx < 0 && !canLeft()) ? dx / 4 : dx;
       setDrag(x, false);
     }
   }, { passive: true });
@@ -1623,11 +1623,13 @@ function backToRooms() {
     dragging = false;
     if (!horiz || !currentRoomId) { setDrag(0, true); return; }
     const commit = Math.abs(dx) > Math.max(80, (panel.clientWidth || 320) * 0.25);
-    if (dx < 0 && commit) {
-      flyOut(-1, () => backToRooms());
-    } else if (dx > 0 && commit && canRight()) {
+    if (dx > 0 && commit) {
+      // 右スワイプ: 相談一覧へ
+      flyOut(1, () => backToRooms());
+    } else if (dx < 0 && commit && canLeft()) {
+      // 左スワイプ: BAの該当質問へ
       const roomId = currentRoomId;
-      flyOut(1, () => {
+      flyOut(-1, () => {
         if (state.cases.some(c => c.roomId === roomId) && !isDoneRoomId(roomId)) jumpToCase(roomId);
         else activateTab("expert");
       });
