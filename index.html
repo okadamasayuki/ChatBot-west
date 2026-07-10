@@ -1631,27 +1631,25 @@ function renderCase(c) {
 
   let html = `${label}<div class="q-text">${escapeHtml(c.question)}</div>`;
 
-  if (c.roomId) {
-    html += `<div class="actions" style="margin-top:8px;">
-      <button class="btn secondary tiny" data-action="open-room" data-case="${c.id}">💬 元の相談を開く</button>
-    </div>`;
+  // 「元の相談を開く」と「対応者」を横に並べる(回答前から対応者を登録できる)
+  let hrow = "";
+  if (c.roomId) hrow += `<button class="btn secondary tiny" data-action="open-room" data-case="${c.id}">💬 元の相談を開く</button>`;
+  if (c.status === "answered") {
+    if (c.handledBy) hrow += `<span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>`;
+  } else if (c.handledBy) {
+    hrow += `<span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>
+      <button class="btn tiny" data-action="set-handler" data-case="${c.id}">自分に変更</button>`;
+  } else {
+    hrow += `<button class="btn secondary tiny" data-action="set-handler" data-case="${c.id}">🧑‍💼 対応者として登録</button>`;
   }
+  if (hrow) html += `<div class="handler-row">${hrow}</div>`;
 
   if (c.status === "answered") {
     html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>`;
-    if (c.handledBy) html += `<div class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</div>`;
     html += `<div class="answered-note">質問者に回答を送信しました。</div>`;
     html += naikiReflectHtml(c);
     div.innerHTML = html;
     return div;
-  }
-
-  // 対応者(回答前から登録できる。ログイン中の財務を担当者として記録)
-  if (c.handledBy) {
-    html += `<div class="handler-row"><span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>
-      <button class="btn tiny" data-action="set-handler" data-case="${c.id}">自分に変更</button></div>`;
-  } else {
-    html += `<div class="handler-row"><button class="btn secondary tiny" data-action="set-handler" data-case="${c.id}">🧑‍💼 対応者として登録</button></div>`;
   }
 
   // 選択肢(AI提案 + 自由入力を同じカード形式で並べる)
