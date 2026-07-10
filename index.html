@@ -333,10 +333,10 @@
     padding: 4px 8px; margin-top: 6px; line-height: 1.5;
   }
   .case .manual-refs-note { font-size: 11px; color: #8a93a3; margin-top: 8px; }
-  .case .handler-hint {
+  .handler-hint {
     font-size: 12px; color: #8a6d00;
     background: #fff8e1; border-radius: 8px;
-    padding: 8px 10px; margin-top: 8px; line-height: 1.6;
+    padding: 8px 10px; line-height: 1.6;
   }
   .case .opt input { margin-top: 3px; }
   .case .opt-custom-body { flex: 1; min-width: 0; }
@@ -1963,6 +1963,13 @@ function renderExpert() {
     expertList.innerHTML = '<div class="empty-note">BAへの確認依頼はありません。<br>AIが回答できない質問が届くとここに表示されます。</div>';
     return;
   }
+  // 自分が対応者になっていない未回答案件があるときだけ、一覧の先頭に案内を1回表示
+  if (open.some(c => !(myName() && c.handledBy === myName()))) {
+    const hint = document.createElement("div");
+    hint.className = "handler-hint";
+    hint.textContent = "回答するには「要対応」をタップして、自分を対応者にしてください。";
+    expertList.appendChild(hint);
+  }
   for (const c of [...open, ...done]) expertList.appendChild(renderCase(c));
 }
 
@@ -2055,10 +2062,6 @@ function renderCase(c) {
           <button class="btn primary" data-action="approve" data-case="${c.id}">OK — 質問者に送信</button>
         </div>`;
     }
-  } else {
-    html += `<div class="handler-hint">${c.handledBy
-      ? `対応中：${escapeHtml(c.handledBy)} さんの案件です。回答するには上のラベルをタップして対応者を自分に変更してください。`
-      : "回答するには「要対応」をタップして、自分を対応者にしてください。"}</div>`;
   }
 
   div.innerHTML = html;
