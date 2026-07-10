@@ -459,14 +459,11 @@
     <div id="expertList"></div>
   </div>
 
-  <!-- 内規パネル(財務のみ) -->
+  <!-- 内規パネル(財務のみ・閲覧専用) -->
   <div class="panel" id="panel-naiki">
     <div class="pad-scroll">
-      <div class="pad-note">内規(社内ルール) — チーム共通の1つ。回答時にAIが最優先で参照します。編集すると全員に即時反映されます。</div>
-      <textarea id="naikiEdit" style="min-height:260px;" placeholder="## 会計処理ルール&#10;&#10;- 減価償却は定額法とする。"></textarea>
-      <div style="display:flex;gap:8px;">
-        <button class="btn primary" id="btnSaveNaiki">内規を保存</button>
-      </div>
+      <div class="pad-note">内規(社内ルール) — チーム共通の1つ。回答時にAIが最優先で参照します。閲覧のみ(編集は管理者が Firebase コンソールで行います)。</div>
+      <textarea id="naikiEdit" style="min-height:260px;background:#f3f4f6;" readonly></textarea>
     </div>
   </div>
 
@@ -1363,21 +1360,12 @@ expertList.addEventListener("focusout", e => {
   }
 });
 
-/* ================= 内規タブ(財務) ================= */
+/* ================= 内規タブ(財務・閲覧専用) ================= */
 function renderNaiki() {
   const ta = document.getElementById("naikiEdit");
   if (!ta) return;
-  if (document.activeElement !== ta) ta.value = state.naiki || ""; // 編集中は上書きしない
+  ta.value = state.naiki || "";
 }
-document.getElementById("btnSaveNaiki").addEventListener("click", () => {
-  state.naiki = document.getElementById("naikiEdit").value;
-  if (cloud.on) {
-    cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid), { naiki: state.naiki }, { merge: true }).catch(e => console.error(e));
-  } else {
-    saveState();
-  }
-  alert("内規を保存しました。回答時にAIが参照します。");
-});
 
 /* ================= 社内マニュアルタブ(財務) ================= */
 function renderManual() {
