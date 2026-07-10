@@ -436,6 +436,9 @@
   }
   .pad-scroll textarea { resize: vertical; }
   .pad-scroll input:focus, .pad-scroll textarea:focus { border-color: #06c755; }
+  /* 内規タブ: 表示欄を縦いっぱいまで広げる */
+  #panel-naiki .pad-scroll { display: flex; flex-direction: column; }
+  #panel-naiki #naikiEdit { flex: 1 1 auto; min-height: 300px; margin-bottom: 0; }
   .manual-item { background: #fff; border: 1px solid #e5e8ee; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
   .manual-item .mt { font-weight: 600; font-size: 13px; color: #1f2a3a; }
   .manual-item .mc { font-size: 12px; color: #7a8699; margin-top: 4px; white-space: pre-wrap; max-height: 54px; overflow: hidden; }
@@ -545,7 +548,7 @@
   <div class="panel" id="panel-naiki">
     <div class="pad-scroll">
       <div class="pad-note">内規(社内ルール) — チーム共通の1つ。回答時にAIが最優先で参照します。内規の更新は「専門家」タブの各相談から行えます(直接の編集は Firebase コンソール)。</div>
-      <textarea id="naikiEdit" style="min-height:260px;background:#f3f4f6;" readonly></textarea>
+      <textarea id="naikiEdit" style="background:#f3f4f6;" readonly></textarea>
     </div>
   </div>
 
