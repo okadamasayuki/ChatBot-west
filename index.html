@@ -82,6 +82,75 @@
   .panel { flex: 1; display: none; flex-direction: column; overflow: hidden; }
   .panel.active { display: flex; }
 
+  /* ===== Room bar (LINE風トークの上部バー) ===== */
+  #roomBar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: #e9edf3;
+    border-bottom: 1px solid #d9dee7;
+    flex-shrink: 0;
+  }
+  #roomBar button {
+    background: #fff;
+    border: 1px solid #cfd6e0;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #roomBar button:hover { background: #f0f3f7; }
+  #btnBackRooms { font-size: 16px; line-height: 1; }
+  #roomTitle {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    color: #273246;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ===== Room list (LINEのトーク履歴) ===== */
+  #chatLog.list-mode { padding: 0; gap: 0; background: #fff; }
+  .room-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border-bottom: 1px solid #eef0f4;
+    cursor: pointer;
+  }
+  .room-item:hover { background: #f5f7fa; }
+  .room-avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: #8cabd8;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .room-main { flex: 1; min-width: 0; }
+  .room-title {
+    font-size: 14px; font-weight: 600; color: #1f2a3a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .room-preview {
+    font-size: 12px; color: #7a8699; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .room-tag {
+    display: inline-block; font-size: 10px;
+    background: #fff2cc; color: #8a6d00;
+    border-radius: 6px; padding: 1px 6px; margin-top: 4px;
+  }
+  .room-tag.done { background: #e3f6e9; color: #1f8a4c; }
+  .room-meta { font-size: 10px; color: #9aa6b6; flex-shrink: 0; margin-left: 6px; }
+  .room-empty { text-align: center; color: #7a8699; font-size: 13px; padding: 40px 20px; line-height: 1.7; }
+
   /* ===== Chat (questioner) ===== */
   #chatLog {
     flex: 1;
@@ -318,6 +387,11 @@
 
   <!-- 質問者パネル -->
   <div class="panel active" id="panel-chat">
+    <div id="roomBar">
+      <button id="btnBackRooms" title="相談一覧へ">←</button>
+      <div id="roomTitle">相談一覧</div>
+      <button id="btnNewRoom">＋ 新規相談</button>
+    </div>
     <div id="chatLog"></div>
     <div id="inputBar">
       <textarea id="qInput" rows="1" placeholder="会計に関する質問を入力..."></textarea>
@@ -401,12 +475,30 @@ const state = loadState();
 function loadState() {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(LS_KEY)); } catch (e) {}
-  if (!s || !Array.isArray(s.messages) || !Array.isArray(s.cases)) {
-    s = { apiKey: "", messages: [], cases: [], qaLog: [] };
+  if (!s || !Array.isArray(s.cases)) {
+    s = { apiKey: "", cases: [], qaLog: [] };
   }
   // クラウド共有用の設定(この端末にのみ保存)
   if (typeof s.firebaseConfig !== "string") s.firebaseConfig = "";
   if (typeof s.workspaceCode !== "string") s.workspaceCode = "";
+  // 相談ルーム(トーク)構造
+  if (!Array.isArray(s.rooms)) s.rooms = [];
+  if (!s.roomMsgs || typeof s.roomMsgs !== "object") s.roomMsgs = {};
+  // 旧バージョン(単一チャット)からの移行: 既存メッセージを1つのルームにまとめる
+  if (Array.isArray(s.messages) && s.messages.length && s.rooms.length === 0) {
+    const first = s.messages.find(m => m.role === "user");
+    const rid = "legacy";
+    s.rooms.push({
+      id: rid,
+      title: first ? first.text.slice(0, 30) : "これまでの相談",
+      createdAt: s.messages[0].ts || new Date().toISOString(),
+      lastText: s.messages[s.messages.length - 1].text || "",
+      lastTs: s.messages[s.messages.length - 1].ts || new Date().toISOString()
+    });
+    s.roomMsgs[rid] = s.messages;
+    (s.cases || []).forEach(c => { if (!c.roomId) c.roomId = rid; });
+  }
+  delete s.messages;
   return s;
 }
 function saveState() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
@@ -593,8 +685,10 @@ async function initCloud() {
         cloud.on = false;
         cloud.role = null;
         unsubData();
+        if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
         // 共有データが画面に残らないようにクリア(ローカル保存はしない)
-        state.messages = []; state.cases = []; state.qaLog = [];
+        rooms = []; currentRoomId = null; roomMessages = [];
+        state.cases = []; state.qaLog = [];
         renderChat(); renderExpert(); updateBadges();
         applyRole();
         setCloudStatus("要ログイン", false);
@@ -620,9 +714,13 @@ function subscribeCloud() {
       state.naiki = snap.data().naiki;
     }
   }));
+  // 相談ルーム一覧
   cloud.unsub.push(onSnapshot(
-    query(collection(cloud.db, "workspaces", cloud.wid, "messages"), orderBy("ts")),
-    snap => { state.messages = snap.docs.map(dd => dd.data()); renderChat(); }
+    query(collection(cloud.db, "workspaces", cloud.wid, "rooms"), orderBy("lastTs", "desc")),
+    snap => {
+      rooms = snap.docs.map(dd => dd.data());
+      if (!currentRoomId) renderChat(); else updateRoomBar();
+    }
   ));
   cloud.unsub.push(onSnapshot(
     query(collection(cloud.db, "workspaces", cloud.wid, "cases"), orderBy("askedAt")),
@@ -630,6 +728,7 @@ function subscribeCloud() {
       state.cases = snap.docs.map(dd => dd.data());
       if (!expertEditing) { renderExpert(); }
       updateBadges();
+      if (!currentRoomId) renderChat(); // 一覧のタグ更新
     }
   ));
   cloud.unsub.push(onSnapshot(
@@ -718,38 +817,119 @@ async function callClaude({ system, messages, schema }) {
   return text;
 }
 
-/* ================= 質問者ビュー ================= */
+/* ================= 質問者ビュー(ルーム式 / LINE風トーク) ================= */
 const chatLog = document.getElementById("chatLog");
 const qInput = document.getElementById("qInput");
 const btnSend = document.getElementById("btnSend");
+const inputBar = document.getElementById("inputBar");
 
 let pendingTyping = false;
+let rooms = [];            // 相談ルーム一覧 [{id,title,createdAt,lastText,lastTs}]
+let currentRoomId = null;  // 開いているルーム(null=一覧表示)
+let roomMessages = [];     // 現在ルームのメッセージ
+let roomMsgUnsub = null;   // クラウド: 現在ルームのメッセージ購読解除
 
-function addMessage(msg) {
+function snippet(t, n) { t = (t || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) + "…" : t; }
+function fmtDate(iso) {
+  const d = new Date(iso), now = new Date();
+  if (d.toDateString() === now.toDateString()) return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+function currentRoom() { return rooms.find(r => r.id === currentRoomId); }
+function cloudRoomDoc(id) { return cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", id); }
+
+// メッセージ追加(ルーム単位。roomId未指定なら現在のルーム)
+function addMessage(msg, roomId) {
+  roomId = roomId || currentRoomId;
+  if (!roomId) return;
+  const lastText = msg.role === "user" ? msg.text : (msg.role === "expert" ? "【専門家】" + msg.text : msg.text);
   if (cloud.on) {
-    // クラウド共有モード: Firestoreに書き込み、snapshotで再描画される
-    cloud.fs.setDoc(cloudDoc("messages", msg.id), msg).catch(e => console.error(e));
+    cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", roomId, "messages", msg.id), msg).catch(e => console.error(e));
+    const r = rooms.find(x => x.id === roomId);
+    const patch = { lastText: lastText || "", lastTs: msg.ts || nowIso() };
+    if (msg.role === "user" && (!r || !r.title || r.title === "新しい相談")) patch.title = snippet(msg.text, 30);
+    cloud.fs.updateDoc(cloudRoomDoc(roomId), patch).catch(e => console.error(e));
     return;
   }
-  state.messages.push(msg);
+  if (!state.roomMsgs[roomId]) state.roomMsgs[roomId] = [];
+  state.roomMsgs[roomId].push(msg);
+  const r = state.rooms.find(x => x.id === roomId);
+  if (r) {
+    r.lastText = lastText || ""; r.lastTs = msg.ts || nowIso();
+    if (msg.role === "user" && (!r.title || r.title === "新しい相談")) r.title = snippet(msg.text, 30);
+  }
   saveState();
+  rooms = state.rooms.slice();
+  if (roomId === currentRoomId) roomMessages = state.roomMsgs[roomId];
   renderChat();
 }
 
-function renderChat() {
+function updateRoomBar() {
+  const back = document.getElementById("btnBackRooms");
+  const title = document.getElementById("roomTitle");
+  const nw = document.getElementById("btnNewRoom");
+  if (!currentRoomId) {
+    back.style.display = "none";
+    nw.style.display = "inline-block";
+    title.textContent = "相談一覧";
+  } else {
+    back.style.display = "inline-block";
+    nw.style.display = "none";
+    const r = currentRoom();
+    title.textContent = r ? (r.title || "相談") : "相談";
+  }
+}
+
+function renderRoomList() {
   chatLog.innerHTML = "";
-  if (state.messages.length === 0 && !pendingTyping) {
+  if (rooms.length === 0) {
+    chatLog.innerHTML = '<div class="room-empty">まだ相談はありません。<br>右上の「＋ 新規相談」から質問を始めてください。</div>';
+    return;
+  }
+  const sorted = rooms.slice().sort((a, b) => (b.lastTs || "").localeCompare(a.lastTs || ""));
+  for (const r of sorted) {
+    const openCase = state.cases.some(c => c.roomId === r.id && c.status !== "answered");
+    const answered = state.cases.some(c => c.roomId === r.id && c.status === "answered");
+    let tag = "";
+    if (openCase) tag = '<div class="room-tag">専門家対応中</div>';
+    else if (answered) tag = '<div class="room-tag done">専門家回答済み</div>';
+    const div = document.createElement("div");
+    div.className = "room-item";
+    div.dataset.room = r.id;
+    div.innerHTML = `
+      <div class="room-avatar">💬</div>
+      <div class="room-main">
+        <div class="room-title">${escapeHtml(r.title || "相談")}</div>
+        <div class="room-preview">${escapeHtml(snippet(r.lastText, 40) || "(メッセージなし)")}</div>
+        ${tag}
+      </div>
+      <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>`;
+    chatLog.appendChild(div);
+  }
+}
+
+function renderChat() {
+  updateRoomBar();
+  if (!currentRoomId) {
+    inputBar.style.display = "none";
+    chatLog.classList.add("list-mode");
+    renderRoomList();
+    return;
+  }
+  inputBar.style.display = "flex";
+  chatLog.classList.remove("list-mode");
+  chatLog.innerHTML = "";
+  if (roomMessages.length === 0 && !pendingTyping) {
     chatLog.innerHTML = '<div class="msg system"><div class="bubble">会計に関する質問を入力してください。AIが回答できない場合は会計の専門家におつなぎします。</div></div>';
   }
-  const lastIdx = state.messages.length - 1;
-  state.messages.forEach((m, idx) => {
+  const lastIdx = roomMessages.length - 1;
+  roomMessages.forEach((m, idx) => {
     const div = document.createElement("div");
     if (m.role === "user") {
       div.className = "msg me";
       div.innerHTML = `<div class="bubble">${escapeHtml(m.text)}</div><div class="meta">${fmtTime(m.ts)}</div>`;
     } else if (m.role === "ai") {
       let extra = "";
-      // 最後のメッセージにのみ選択肢ボタンを表示(回答済みの過去のものには出さない)
       if (idx === lastIdx && Array.isArray(m.clarifyOptions) && m.clarifyOptions.length) {
         extra = '<div class="choice-btns">' +
           m.clarifyOptions.map(o => `<button class="choice-btn" type="button">${escapeHtml(o)}</button>`).join("") +
@@ -775,8 +955,54 @@ function renderChat() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-// 選択肢ボタンのクリック → その選択肢を回答として送信
+// 新規ルーム作成
+function createRoom() {
+  if (cloud.configured && !cloud.user) { openLogin(); return; }
+  const room = { id: uid(), title: "新しい相談", createdAt: nowIso(), lastText: "", lastTs: nowIso() };
+  if (cloud.on) {
+    cloud.fs.setDoc(cloudRoomDoc(room.id), room).catch(e => console.error(e));
+    rooms.unshift(room); // 楽観的追加(snapshotで整合)
+  } else {
+    state.rooms.push(room);
+    state.roomMsgs[room.id] = [];
+    saveState();
+    rooms = state.rooms.slice();
+  }
+  openRoom(room.id);
+}
+
+// ルームを開く
+function openRoom(id) {
+  currentRoomId = id;
+  if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
+  if (cloud.on) {
+    roomMessages = [];
+    const { collection, onSnapshot, query, orderBy } = cloud.fs;
+    roomMsgUnsub = onSnapshot(
+      query(collection(cloud.db, "workspaces", cloud.wid, "rooms", id, "messages"), orderBy("ts")),
+      snap => { roomMessages = snap.docs.map(d => d.data()); renderChat(); }
+    );
+  } else {
+    roomMessages = state.roomMsgs[id] || [];
+  }
+  renderChat();
+}
+
+// 一覧へ戻る
+function backToRooms() {
+  currentRoomId = null;
+  if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
+  roomMessages = [];
+  renderChat();
+}
+
+document.getElementById("btnNewRoom").addEventListener("click", createRoom);
+document.getElementById("btnBackRooms").addEventListener("click", backToRooms);
+
+// クリック: ルーム項目を開く / 選択肢ボタンを送信
 chatLog.addEventListener("click", e => {
+  const roomEl = e.target.closest(".room-item");
+  if (roomEl) { openRoom(roomEl.dataset.room); return; }
   const btn = e.target.closest(".choice-btn");
   if (!btn || sending) return;
   submitQuestion(btn.textContent);
@@ -804,8 +1030,8 @@ async function submitQuestion(text) {
   renderChat();
 
   try {
-    // 直近の会話履歴(最大10往復分)をコンテキストとして渡す
-    const history = state.messages
+    // このルーム内の直近の会話履歴をコンテキストとして渡す
+    const history = roomMessages
       .filter(m => m.role === "user" || m.role === "ai" || m.role === "expert")
       .slice(-20)
       .map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
@@ -831,6 +1057,7 @@ async function submitQuestion(text) {
       // エスカレーション
       const caseObj = {
         id: uid(),
+        roomId: currentRoomId,
         question: text,
         reason: result.escalation_reason || "専門家の確認が必要な質問です。",
         options: (result.options && result.options.length ? result.options : ["質問内容を確認のうえ個別に回答する"]),
@@ -962,7 +1189,7 @@ expertList.addEventListener("click", async e => {
     const finalText = (ta ? ta.value : c.draft || "").trim();
     if (!finalText) { alert("回答文が空です。"); return; }
     expertEditing = null;
-    addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() });
+    addMessage({ id: uid(), role: "expert", text: finalText, ts: nowIso() }, c.roomId);
     addQa({
       question: c.question,
       answered_by: "専門家",
@@ -1015,32 +1242,28 @@ const apiKeyInput = document.getElementById("apiKeyInput");
 const naikiInput = document.getElementById("naikiInput");
 const firebaseInput = document.getElementById("firebaseInput");
 const workspaceInput = document.getElementById("workspaceInput");
-function naikiEditable() {
-  // 共有ON時は財務(専門家)のみ編集可。ローカル単体利用時は誰でも編集可。
-  return !(cloud.on && cloud.role !== "expert");
-}
 function openSettings() {
   apiKeyInput.value = state.apiKey || "";
   naikiInput.value = state.naiki || "";
   firebaseInput.value = state.firebaseConfig || "";
   workspaceInput.value = state.workspaceCode || "";
-  const editable = naikiEditable();
-  naikiInput.readOnly = !editable;
-  naikiInput.style.background = editable ? "" : "#f3f4f6";
+  // 内規: 担当者には非表示。財務(および設定前)は閲覧のみ(編集はFirebaseコンソールで管理)。
+  const showNaiki = !(cloud.on && cloud.role === "questioner");
   const note = document.getElementById("naikiNote");
+  naikiInput.style.display = showNaiki ? "" : "none";
   if (note) {
-    note.textContent = editable
-      ? "内規(社内ルール) — チーム共通の1つを運用します。回答時にAIが参照し、共有ONの場合はチーム全員に反映されます。"
-      : "内規(社内ルール) — 閲覧のみ。編集は財務(会計の専門家)が行います。";
+    note.style.display = showNaiki ? "" : "none";
+    note.textContent = "内規(社内ルール) — チーム共通の1つを運用。閲覧のみ(編集はFirebaseコンソールで管理者が行います)。回答時にAIが参照します。";
   }
+  naikiInput.readOnly = true;
+  naikiInput.style.background = "#f3f4f6";
   updateAuthUI();
   modalSettings.classList.add("show");
 }
 document.getElementById("btnSettings").addEventListener("click", openSettings);
 document.getElementById("btnSaveKey").addEventListener("click", () => {
   state.apiKey = apiKeyInput.value.trim();
-  const editable = naikiEditable();
-  if (editable) state.naiki = naikiInput.value; // 財務のみ内規を更新
+  // 内規はアプリからは編集しない(Firebaseコンソールで管理)
   const cloudChanged = (state.firebaseConfig !== firebaseInput.value.trim()) ||
                        (state.workspaceCode !== workspaceInput.value.trim());
   state.firebaseConfig = firebaseInput.value.trim();
@@ -1049,8 +1272,6 @@ document.getElementById("btnSaveKey").addEventListener("click", () => {
   modalSettings.classList.remove("show");
   if (cloudChanged) {
     location.reload();        // 接続設定が変わったら再読み込みして繋ぎ直す(Firebase初期化を一度だけに)
-  } else if (editable) {
-    saveNaikiShared();        // 内規のみ変更 → 共有中なら反映
   }
 });
 
@@ -1147,10 +1368,12 @@ document.getElementById("btnDlCsv").addEventListener("click", () => {
 });
 
 /* ================= 初期化 ================= */
+rooms = state.rooms.slice();
+currentRoomId = null;
 renderChat();
 renderExpert();
 updateBadges();
-applyRole();  // ローカルモードでは両タブ表示
+applyRole();
 initCloud(); // Firebase設定+合言葉があればクラウド共有を開始
 if (!state.apiKey) openSettings();
 </script>
