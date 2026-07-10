@@ -503,7 +503,7 @@
   </header>
 
   <div id="tabs">
-    <div class="tab active" data-tab="chat">質問者<span class="badge" id="badgeChat"></span></div>
+    <div class="tab active" data-tab="chat"><span id="chatTabLabel">質問者</span><span class="badge" id="badgeChat"></span></div>
     <div class="tab" data-tab="expert">専門家<span class="badge" id="badgeExpert"></span></div>
     <div class="tab" data-tab="naiki" style="display:none;">社内ルール</div>
     <div class="tab" data-tab="manual" style="display:none;">マニュアル</div>
@@ -899,6 +899,9 @@ function applyRole() {
   // 社内ルール・マニュアルタブは財務のみ表示
   if (naikiTab) naikiTab.style.display = isExpert ? "" : "none";
   if (manualTab) manualTab.style.display = isExpert ? "" : "none";
+  // 財務は「質問者」タブを「相談一覧」と表示
+  const chatLabel = document.getElementById("chatTabLabel");
+  if (chatLabel) chatLabel.textContent = isExpert ? "相談一覧" : "質問者";
   // 表示中のタブが隠れたら質問者タブへ戻す
   const active = document.querySelector("#tabs .tab.active");
   if (active && active.style.display === "none") activateTab("chat");
@@ -1234,26 +1237,27 @@ function updateFilterButtons() {
 function setRoomFilter(f) { roomFilter = f; updateFilterButtons(); renderChat(); }
 
 function updateRoomBar() {
+  const bar = document.getElementById("roomBar");
   const back = document.getElementById("btnBackRooms");
   const title = document.getElementById("roomTitle");
   const nw = document.getElementById("btnNewRoom");
   const filters = document.getElementById("roomFilters");
   const isExpert = cloud.on && cloud.role === "expert";
   if (!currentRoomId) {
+    // 財務の一覧はタブ名が「相談一覧」なので、バー自体を出さない
+    bar.style.display = isExpert ? "none" : "";
     back.style.display = "none";
     // 財務(専門家)は相談を作成しないため「＋新規」を非表示
     nw.style.display = isExpert ? "none" : "inline-block";
-    // 財務は常に「全員の相談」のみのため、フィルタ切替は不要(タイトルを表示)
+    title.style.display = "none";
     if (isExpert) {
       filters.style.display = "none";
-      title.style.display = "block";
-      title.textContent = "相談一覧";
     } else {
-      title.style.display = "none";
       filters.style.display = "flex";
       updateFilterButtons();
     }
   } else {
+    bar.style.display = "";
     back.style.display = "inline-block";
     nw.style.display = "none";
     filters.style.display = "none";
