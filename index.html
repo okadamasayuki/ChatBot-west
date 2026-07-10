@@ -320,9 +320,10 @@
   .case .opt:hover { border-color: #06c755; }
   .case .opt.selected { border-color: #06c755; background: #f0fbf4; }
   .case .opt input { margin-top: 3px; }
-  .case .opt-custom { cursor: default; }
   .case .opt-custom-body { flex: 1; min-width: 0; }
-  .case .opt-custom-label { font-size: 13px; margin-bottom: 6px; }
+  .case .opt-custom-label { font-size: 13px; }
+  .case .opt-custom .custom-input-area { margin-top: 8px; }
+  .case .opt-custom textarea.custom-dir { cursor: text; }
   .case .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .btn {
     border: none;
@@ -1540,14 +1541,16 @@ function renderCase(c) {
       <span>${escapeHtml(opt)}</span>
     </label>`;
   });
-  // 自由入力も選択肢と同じカード形式(音声入力可)
+  // 自由入力も選択肢と同じカード形式(クリックで入力フォームが開く。音声入力可)
   html += `<div class="opt opt-custom" data-case="${c.id}" data-opt="custom">
       <input type="radio" name="opt-${c.id}">
       <span class="opt-custom-body">
         <div class="opt-custom-label">自由に入力する(音声入力できます)</div>
-        <textarea class="custom-dir" data-case="${c.id}" placeholder="例: 消耗品費で処理してよいと案内。ただし〜の点は注意、と伝える"></textarea>
-        <div class="actions" style="margin-top:8px;margin-bottom:0;">
-          <button class="btn mic-btn" data-mic="${c.id}" type="button">🎤 音声入力</button>
+        <div class="custom-input-area" style="display:none;">
+          <textarea class="custom-dir" data-case="${c.id}" placeholder="例: 消耗品費で処理してよいと案内。ただし〜の点は注意、と伝える"></textarea>
+          <div class="actions" style="margin-top:8px;margin-bottom:0;">
+            <button class="btn mic-btn" data-mic="${c.id}" type="button">🎤 音声入力</button>
+          </div>
         </div>
       </span>
     </div>`;
@@ -1579,6 +1582,8 @@ function markCustomSelected(optEl) {
     o.classList.toggle("selected", on);
     const r = o.querySelector('input[type="radio"]');
     if (r) r.checked = on;
+    const area = o.querySelector(".custom-input-area");
+    if (area) area.style.display = on ? "block" : "none"; // 自由入力カードは選択時だけフォームを表示
   });
 }
 
