@@ -1636,11 +1636,12 @@ function renderCase(c) {
   if (c.roomId) hrow += `<button class="btn secondary tiny" data-action="open-room" data-case="${c.id}">💬 元の相談を開く</button>`;
   if (c.status === "answered") {
     if (c.handledBy) hrow += `<span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>`;
-  } else if (c.handledBy) {
-    hrow += `<span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>
-      <button class="btn tiny" data-action="set-handler" data-case="${c.id}">自分に変更</button>`;
   } else {
-    hrow += `<button class="btn secondary tiny" data-action="set-handler" data-case="${c.id}">🧑‍💼 対応者として登録</button>`;
+    // 対応者はクリックで自分をON/OFF(トグル)
+    const mine = c.handledBy && c.handledBy === myName();
+    const cls = mine ? "btn primary tiny" : "btn secondary tiny";
+    const txt = c.handledBy ? `🧑‍💼 対応者: ${escapeHtml(c.handledBy)}` : "🧑‍💼 対応者を登録";
+    hrow += `<button class="${cls}" data-action="set-handler" data-case="${c.id}">${txt}</button>`;
   }
   if (hrow) html += `<div class="handler-row">${hrow}</div>`;
 
@@ -1790,7 +1791,8 @@ expertList.addEventListener("click", async e => {
   if (btn.dataset.action === "set-handler") {
     const me = myName();
     if (!me) { alert("ログインしてから登録してください。"); return; }
-    updateCase(c, { handledBy: me });
+    // 自分が対応者なら外す、そうでなければ自分を設定(トグル)
+    updateCase(c, { handledBy: c.handledBy === me ? "" : me });
     return;
   }
 
