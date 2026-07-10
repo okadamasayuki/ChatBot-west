@@ -1519,15 +1519,31 @@ function renderChat() {
   chatLog.scrollTop = chatLog.scrollHeight;
 }
 
-// ブラウザ履歴: 相談を開いたら履歴を1つ積み、ブラウザ/スマホの「戻る」で一覧へ戻れるようにする
-let roomHistPushed = false;
-function pushRoomHistory() {
-  if (roomHistPushed) return;
-  try { history.pushState({ room: 1 }, ""); roomHistPushed = true; } catch (e) {}
+// ブラウザ履歴: 「どのタブにいるか」「どの相談を開いているか」を履歴に記録し、
+// ブラウザ/スマホの「戻る」「進む」でアプリ内の前の画面(タブ・一覧・相談)に移動できるようにする。
+// 履歴を積むのはユーザーの操作時のみ: タブのタップ / 相談を開く / ＋新規 / BAの該当案件へジャンプ
+let roomHistActive = false; // 現在の履歴エントリが「相談を開いた状態」か(←ボタンでhistory.back()するかの判定)
+function historyState() { return { app: { tab: activeTabName, room: currentRoomId } }; }
+function historyPushEntry() {
+  try { history.pushState(historyState(), ""); roomHistActive = !!currentRoomId; } catch (e) {}
 }
-window.addEventListener("popstate", () => {
-  roomHistPushed = false;
-  if (currentRoomId) closeRoomView();
+function historyReplaceEntry() {
+  try { history.replaceState(historyState(), ""); roomHistActive = !!currentRoomId; } catch (e) {}
+}
+window.addEventListener("popstate", (e) => {
+  const st = (e.state && e.state.app) || { tab: "chat", room: null };
+  const room = st.room;
+  if (room && (rooms.some(r => r.id === room) || (pendingRoom && pendingRoom.id === room))) {
+    if (currentRoomId !== room) openRoomView(room);
+  } else if (currentRoomId) {
+    closeRoomView();
+  }
+  const tab = st.tab || "chat";
+  if (tab !== activeTabName) {
+    const t = document.querySelector(`#tabs .tab[data-tab="${tab}"]`);
+    if (t && t.style.display !== "none") activateTab(tab);
+  }
+  roomHistActive = !!room;
 });
 
 // 新規ルーム作成
@@ -1543,12 +1559,17 @@ function createRoom() {
   };
   currentRoomId = pendingRoom.id;
   roomMessages = [];
-  pushRoomHistory();
   renderChat();
+  historyPushEntry();
 }
 
-// ルームを開く
+// ルームを開く(履歴に積む)
 function openRoom(id) {
+  openRoomView(id);
+  historyPushEntry();
+}
+// ルームを表示する(履歴操作なし。popstateからも使う)
+function openRoomView(id) {
   pendingRoom = null; // 別ルームを開いたら未送信の下書きは破棄
   roomOrigin = null;  // 通常のオープンは戻り先なし(専門家からのときは後で設定)
   currentRoomId = id;
@@ -1558,14 +1579,13 @@ function openRoom(id) {
     if (roomMsgUnsub) { try { roomMsgUnsub(); } catch (e) {} roomMsgUnsub = null; }
     roomMessages = state.roomMsgs[id] || [];
   }
-  pushRoomHistory();
   renderChat();
 }
 
 // 一覧へ戻る(画面の←ボタン・スワイプから)。
-// 履歴を積んでいる場合はhistory.back()経由にして、ブラウザの「戻る」と状態を揃える
+// 相談の履歴エントリ上にいる場合はhistory.back()経由にして、ブラウザの「戻る」と状態を揃える
 function backToRooms() {
-  if (roomHistPushed) { history.back(); return; } // popstate側でcloseRoomViewが呼ばれる
+  if (roomHistActive) { history.back(); return; } // popstate側でcloseRoomViewが呼ばれる
   closeRoomView();
 }
 function closeRoomView() {
@@ -1738,6 +1758,7 @@ function jumpToCase(roomId) {
     || state.cases.find(x => x.roomId === roomId);
   if (!c) return;
   activateTab("expert");
+  historyPushEntry(); // ジャンプも「戻る」で元の画面に帰れるようにする
   // タブ切り替え直後は非表示状態のことがあるため、表示後にスクロールする
   setTimeout(() => {
     const el = expertList.querySelector(`.case[data-case-id="${c.id}"]`);
@@ -2646,7 +2667,11 @@ function updateBadges() {
 }
 
 document.querySelectorAll("#tabs .tab").forEach(tab => {
-  tab.addEventListener("click", () => activateTab(tab.dataset.tab));
+  tab.addEventListener("click", () => {
+    if (tab.dataset.tab === activeTabName) return;
+    activateTab(tab.dataset.tab);
+    historyPushEntry(); // タブ移動もブラウザの「戻る」で辿れるようにする
+  });
 });
 
 /* ================= 設定 ================= */
@@ -2961,6 +2986,7 @@ renderChat();
 renderExpert();
 updateBadges();
 applyRole();
+historyReplaceEntry(); // 最初の履歴エントリにアプリ状態を記録(戻る/進むの復元用)
 openLogin();  // 最初にログイン画面を表示(認証済みなら接続後に自動で閉じる)
 initCloud();  // 常時クラウド接続 → ログイン。APIキーはサーバー側で管理
 </script>
