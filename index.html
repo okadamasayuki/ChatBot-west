@@ -626,7 +626,8 @@
     <div class="modal">
       <h2 id="manualPreviewTitle">マニュアル</h2>
       <div id="manualPreviewBody" style="white-space:pre-wrap;font-size:13px;line-height:1.7;max-height:60dvh;overflow-y:auto;background:#f7f8fa;border:1px solid #e5e8ee;border-radius:8px;padding:12px;"></div>
-      <div class="row" style="margin-top:12px;">
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;">
+        <button class="btn secondary" id="btnPreviewExtractNaiki">📋 社内ルールを抽出</button>
         <button class="btn primary" id="btnManualPreviewClose">閉じる</button>
       </div>
     </div>
@@ -2043,7 +2044,9 @@ document.getElementById("manualList").addEventListener("click", e => {
 // マニュアルのプレビュー(元PDFがあればPDFをそのまま描画、なければ抽出テキスト)
 const modalManualPreview = document.getElementById("modalManualPreview");
 let previewSeq = 0; // 連打・切替時に古い描画を破棄する
+let previewingManual = null; // プレビュー中のマニュアル(社内ルール抽出用)
 async function openManualPreview(m) {
+  previewingManual = m;
   const body = document.getElementById("manualPreviewBody");
   document.getElementById("manualPreviewTitle").textContent = m.title || "無題";
   modalManualPreview.classList.add("show");
@@ -2093,9 +2096,8 @@ modalManualPreview.addEventListener("click", e => { if (e.target === modalManual
 
 // マニュアルから社内ルールを抽出(結果はモーダルで確認・反映)
 const modalManualNaiki = document.getElementById("modalManualNaiki");
-document.getElementById("btnExtractNaiki").addEventListener("click", async () => {
-  if (!manuals.length) { alert("先にマニュアルを追加してください。"); return; }
-  let src = manuals.map(m => `# ${m.title || "無題"}\n${m.content || ""}`).join("\n\n");
+// 共通: マニュアル本文から社内ルールを抽出して結果モーダルを開く
+async function extractNaikiFrom(src, btn, origLabel) {
   if (src.length > 12000) src = src.slice(0, 12000) + "\n…(以下省略)";
   // 既存の社内ルールがある場合は、不足分のみ抽出するかを確認する
   const existing = (state.naiki || "").trim();
@@ -2103,7 +2105,6 @@ document.getElementById("btnExtractNaiki").addEventListener("click", async () =>
   if (existing) {
     diffMode = confirm("既存の社内ルールと比較して、不足している項目のみを抽出しますか?\n\nOK: 不足分のみ抽出(既存の社内ルールにある項目は除く)\nキャンセル: マニュアル全体から抽出");
   }
-  const btn = document.getElementById("btnExtractNaiki");
   btn.disabled = true;
   btn.textContent = "抽出中...";
   try {
@@ -2116,13 +2117,25 @@ document.getElementById("btnExtractNaiki").addEventListener("click", async () =>
     });
     document.getElementById("manualNaikiText").value = (extracted || "").trim();
     document.getElementById("manualNaikiSaved").style.display = "none";
+    modalManualPreview.classList.remove("show"); // プレビューから呼ばれた場合は前面に出すため閉じる
     modalManualNaiki.classList.add("show");
   } catch (err) {
     alert("社内ルールの抽出に失敗しました: " + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "📋 マニュアルから社内ルールを抽出";
+    btn.textContent = origLabel;
   }
+}
+document.getElementById("btnExtractNaiki").addEventListener("click", () => {
+  if (!manuals.length) { alert("先にマニュアルを追加してください。"); return; }
+  const src = manuals.map(m => `# ${m.title || "無題"}\n${m.content || ""}`).join("\n\n");
+  extractNaikiFrom(src, document.getElementById("btnExtractNaiki"), "📋 マニュアルから社内ルールを抽出");
+});
+// プレビュー中のマニュアル1件から抽出
+document.getElementById("btnPreviewExtractNaiki").addEventListener("click", () => {
+  if (!previewingManual) return;
+  const src = `# ${previewingManual.title || "無題"}\n${previewingManual.content || ""}`;
+  extractNaikiFrom(src, document.getElementById("btnPreviewExtractNaiki"), "📋 社内ルールを抽出");
 });
 document.getElementById("btnManualNaikiClose").addEventListener("click", () => modalManualNaiki.classList.remove("show"));
 modalManualNaiki.addEventListener("click", e => { if (e.target === modalManualNaiki) modalManualNaiki.classList.remove("show"); });
