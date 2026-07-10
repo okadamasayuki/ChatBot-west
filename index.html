@@ -405,6 +405,11 @@
     cursor: pointer;
   }
   .room-naiki-btn:hover { background: #e9eef5; border-color: #06c755; }
+  .room-sel-wrap {
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px 10px; margin: -12px -2px -12px -8px;
+    flex-shrink: 0; cursor: pointer;
+  }
   .room-sel { width: 18px; height: 18px; flex-shrink: 0; accent-color: #06c755; cursor: pointer; }
   .room-item.done-room .room-title { color: #9aa6b6; }
   .mic-btn { background: #eef1f6; color: #333; }
@@ -1447,8 +1452,9 @@ function renderRoomList() {
       ? `<button class="room-naiki-btn" data-naiki-room="${r.id}" title="この相談から社内ルールを更新" type="button">📋</button>`
       : "";
     // 財務は複数の相談を選択してまとめて社内ルールを更新できる
+    // (ラベルで包んで当たり判定を広げる。チェックボックス周辺のクリックで相談が開かないように)
     const selBox = isExpertList
-      ? `<input type="checkbox" class="room-sel" data-sel="${r.id}"${selectedRooms.has(r.id) ? " checked" : ""} title="選択してまとめて社内ルールを更新">`
+      ? `<label class="room-sel-wrap" title="選択してまとめて社内ルールを更新"><input type="checkbox" class="room-sel" data-sel="${r.id}"${selectedRooms.has(r.id) ? " checked" : ""}></label>`
       : "";
     const row = document.createElement("div");
     row.className = "room-row";
@@ -1697,12 +1703,17 @@ document.getElementById("btnRoomToCase").addEventListener("click", () => {
 
 // クリック: 選択 / 削除 / ルームを開く / 選択肢送信
 chatLog.addEventListener("click", e => {
-  const selBox = e.target.closest(".room-sel");
-  if (selBox) {
-    if (selBox.checked) selectedRooms.add(selBox.dataset.sel);
-    else selectedRooms.delete(selBox.dataset.sel);
-    updateRoomBatchBtn();
-    return;
+  const selWrap = e.target.closest(".room-sel-wrap");
+  if (selWrap) {
+    // ラベル部分のクリックはブラウザがチェックを切り替え、input側のclickも発火する。
+    // 選択状態の反映はinput側のイベントでだけ行う(2重反映を防ぐ)
+    const box = selWrap.querySelector(".room-sel");
+    if (e.target === box) {
+      if (box.checked) selectedRooms.add(box.dataset.sel);
+      else selectedRooms.delete(box.dataset.sel);
+      updateRoomBatchBtn();
+    }
+    return; // チェックボックス周辺のクリックでは相談を開かない
   }
   const batch = e.target.closest("#roomBatchNaiki");
   if (batch) { openRoomNaikiModal([...selectedRooms]); return; }
