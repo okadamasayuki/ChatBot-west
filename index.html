@@ -1343,8 +1343,11 @@ function renderChat() {
     renderRoomList();
     return;
   }
-  // 財務は相談対応のみ(質問の入力はできない=閲覧のみ)
-  inputBar.style.display = (cloud.on && cloud.role === "expert") ? "none" : "flex";
+  // 財務は相談対応のみ(質問の入力はできない=閲覧のみ)。
+  // 担当者も、自分以外の相談は閲覧のみ(入力不可)
+  const curRoom = currentRoom();
+  const viewOnly = (cloud.on && cloud.role === "expert") || (curRoom && !isMyRoom(curRoom));
+  inputBar.style.display = viewOnly ? "none" : "flex";
   chatLog.classList.remove("list-mode");
   chatLog.innerHTML = "";
   if (roomMessages.length === 0 && !pendingTyping) {
@@ -1597,6 +1600,9 @@ function sendQuestion() {
 async function submitQuestion(text) {
   if (!text || sending) return;
   if (cloud.configured && !cloud.user) { openLogin(); return; } // ログイン必須(APIキーはサーバー側)
+  // 自分以外の相談には送信できない(財務、および担当者が他人の相談を開いた場合)
+  const sendRoom = currentRoom();
+  if ((cloud.on && cloud.role === "expert") || (sendRoom && !isMyRoom(sendRoom))) return;
 
   sending = true;
   btnSend.disabled = true;
