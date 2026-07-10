@@ -911,6 +911,9 @@ function applyRole() {
   if (isExpert) roomFilter = "all";
   updateFilterButtons();
   updateRoomBar();
+  // 役割の取得は相談一覧の受信より遅れることがある(再読み込み直後)。
+  // フィルタが変わった後の状態で一覧を描き直さないと、財務で一覧が空のまま残る。
+  if (!currentRoomId) renderChat();
 }
 
 async function initCloud() {
@@ -1006,15 +1009,19 @@ function subscribeCloud() {
   // 社内マニュアル
   cloud.unsub.push(onSnapshot(
     query(collection(cloud.db, "workspaces", cloud.wid, "manuals"), orderBy("updatedAt")),
-    snap => { manuals = snap.docs.map(dd => dd.data()); renderManual(); }
+    snap => { manuals = snap.docs.map(dd => dd.data()); renderManual(); },
+    err => console.error("マニュアルの購読エラー:", err)
   ));
   // 相談ルーム一覧
+  // orderByは付けない: lastTsが無い/型が違うドキュメントが黙って除外されるため。
+  // 並び替えはrenderRoomList側(クライアント)で行う。
   cloud.unsub.push(onSnapshot(
-    query(collection(cloud.db, "workspaces", cloud.wid, "rooms"), orderBy("lastTs", "desc")),
+    collection(cloud.db, "workspaces", cloud.wid, "rooms"),
     snap => {
       rooms = snap.docs.map(dd => dd.data());
       if (!currentRoomId) renderChat(); else updateRoomBar();
-    }
+    },
+    err => console.error("相談一覧の購読エラー:", err)
   ));
   cloud.unsub.push(onSnapshot(
     query(collection(cloud.db, "workspaces", cloud.wid, "cases"), orderBy("askedAt")),
@@ -1023,11 +1030,13 @@ function subscribeCloud() {
       if (!expertEditing) { renderExpert(); }
       updateBadges();
       if (!currentRoomId) renderChat(); // 一覧のタグ更新
-    }
+    },
+    err => console.error("案件の購読エラー:", err)
   ));
   cloud.unsub.push(onSnapshot(
     query(collection(cloud.db, "workspaces", cloud.wid, "qa"), orderBy("answered_at")),
-    snap => { state.qaLog = snap.docs.map(dd => dd.data()); }
+    snap => { state.qaLog = snap.docs.map(dd => dd.data()); },
+    err => console.error("履歴の購読エラー:", err)
   ));
 }
 
@@ -1170,7 +1179,8 @@ function subscribeRoomMessages(id) {
   const { collection, onSnapshot, query, orderBy } = cloud.fs;
   roomMsgUnsub = onSnapshot(
     query(collection(cloud.db, "workspaces", cloud.wid, "rooms", id, "messages"), orderBy("ts")),
-    snap => { roomMessages = snap.docs.map(d => d.data()); renderChat(); }
+    snap => { roomMessages = snap.docs.map(d => d.data()); renderChat(); },
+    err => console.error("メッセージの購読エラー:", err)
   );
 }
 
