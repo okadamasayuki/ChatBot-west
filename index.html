@@ -355,28 +355,33 @@ const API_URL = "https://api.anthropic.com/v1/messages";
 const TRIAGE_SCHEMA = {
   type: "object",
   properties: {
-    decision: { type: "string", enum: ["answer", "escalate"] },
-    answer: { type: "string", description: "decision が answer の場合の回答本文。escalate の場合は空文字。" },
-    escalation_reason: { type: "string", description: "decision が escalate の場合、専門家に確認が必要な理由。answer の場合は空文字。" },
+    decision: { type: "string", enum: ["answer", "clarify", "escalate"] },
+    answer: { type: "string", description: "decision が answer の場合の回答本文。それ以外は空文字。" },
+    clarify_message: { type: "string", description: "decision が clarify の場合、質問者に送る聞き返しメッセージ。不足している情報を具体的に列挙して尋ねる。それ以外は空文字。" },
+    escalation_reason: { type: "string", description: "decision が escalate の場合、専門家に確認が必要な理由。それ以外は空文字。" },
     options: {
       type: "array",
       items: { type: "string" },
-      description: "decision が escalate の場合、専門家が選ぶ回答方針の選択肢(2〜4個)。answer の場合は空配列。"
+      description: "decision が escalate の場合、専門家が選ぶ回答方針の選択肢(2〜4個)。それ以外は空配列。"
     }
   },
-  required: ["decision", "answer", "escalation_reason", "options"],
+  required: ["decision", "answer", "clarify_message", "escalation_reason", "options"],
   additionalProperties: false
 };
 
 const TRIAGE_SYSTEM = `あなたは会計・経理の質問に答えるAIアシスタントです。日本の会計基準・税務の一般的な知識に基づいて回答します。
 
-判断基準:
-- 一般的な会計知識(仕訳の方法、勘定科目の選択、会計用語の説明、一般的な処理手順など)で確実に答えられる質問 → decision: "answer" とし、丁寧で分かりやすい回答を answer に書いてください。
-- 次のような質問 → decision: "escalate" としてください:
+判断基準(この順で検討してください):
+1. 一般的な会計知識(仕訳の方法、勘定科目の選択、会計用語の説明、一般的な処理手順など)で確実に答えられる質問 → decision: "answer" とし、丁寧で分かりやすい回答を answer に書いてください。
+2. 情報が不足していて正確な回答ができない質問 → decision: "clarify" としてください。会話履歴から読み取れる情報は再度尋ねないこと。
+3. 必要な情報が揃っていても、次のような質問 → decision: "escalate" としてください:
   - 個別の状況次第で結論が変わる質問(金額の妥当性、具体的な税務判断など)
   - 税理士・公認会計士の専門的判断や最新の税制確認が必要な質問
   - 回答に法的責任が伴う可能性がある質問
-  - 情報が不足していて確実な回答ができない質問
+
+clarify の場合:
+- clarify_message に、正確に回答するためにどんな情報が必要かを具体的に列挙して、質問者に尋ねるメッセージを書く(例:「正確にお答えするために、次の点を教えてください。① 購入金額はいくらですか ② 事業用と私用の割合は…」)
+- 尋ねる項目は本当に必要なものだけに絞り、番号付きで分かりやすく書く
 
 escalate の場合:
 - escalation_reason に専門家確認が必要な理由を簡潔に書く
@@ -506,6 +511,9 @@ async function sendQuestion() {
       addMessage({ id: uid(), role: "ai", text: result.answer, ts: nowIso() });
       state.qaLog.push({ question: text, answered_by: "AI", answer: result.answer, asked_at: nowIso(), answered_at: nowIso() });
       saveState();
+    } else if (result.decision === "clarify" && result.clarify_message) {
+      // 情報不足 → 必要な情報を質問者に聞き返す
+      addMessage({ id: uid(), role: "ai", text: result.clarify_message, ts: nowIso() });
     } else {
       // エスカレーション
       const caseObj = {
