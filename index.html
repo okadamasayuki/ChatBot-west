@@ -303,6 +303,8 @@
   }
   .case .q-label.done { background: #06c755; }
   .case .q-text { font-size: 14px; font-weight: 600; line-height: 1.55; margin-bottom: 8px; white-space: pre-wrap; }
+  .case .q-text.q-open { cursor: pointer; color: #0a6ebd; }
+  .case .q-text.q-open:hover { text-decoration: underline; }
   .case .reason { font-size: 12px; color: #666; background: #f5f6f8; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; line-height: 1.5; }
   .case .opt {
     display: flex;
@@ -1629,11 +1631,12 @@ function renderCase(c) {
     ? '<span class="q-label done">✓ 回答済み</span>'
     : '<span class="q-label">要対応</span>';
 
-  let html = `${label}<div class="q-text">${escapeHtml(c.question)}</div>`;
+  // 質問タイトルをクリックすると元の相談(トークルーム)を開く
+  const titleAttr = c.roomId ? ` class="q-text q-open" data-action="open-room" data-case="${c.id}" title="クリックで元の相談を開く"` : ` class="q-text"`;
+  let html = `${label}<div${titleAttr}>${escapeHtml(c.question)}</div>`;
 
-  // 「元の相談を開く」と「対応者」を横に並べる(回答前から対応者を登録できる)
+  // 対応者(回答前から登録できる。クリックで自分をON/OFF)
   let hrow = "";
-  if (c.roomId) hrow += `<button class="btn secondary tiny" data-action="open-room" data-case="${c.id}">💬 元の相談を開く</button>`;
   if (c.status === "answered") {
     if (c.handledBy) hrow += `<span class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</span>`;
   } else {
@@ -1763,7 +1766,7 @@ expertList.addEventListener("click", async e => {
   }
   const mic = e.target.closest(".mic-btn");
   if (mic) { toggleVoice(mic.dataset.mic, mic); return; }
-  const btn = e.target.closest("button[data-action]");
+  const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const c = state.cases.find(x => x.id === btn.dataset.case);
   if (!c) return;
