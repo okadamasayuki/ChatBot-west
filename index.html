@@ -2462,6 +2462,7 @@ function loadExamples() {
 // サンプル相談をクラウド(Firestore)に追加。既存(同じID)は時刻を修復(順番のずれを直す)。追加件数を返す。
 async function addSampleConsultations() {
   if (!cloud.on) throw new Error("ログインしてから追加してください。");
+  const { collection, getDocs, deleteDoc, doc } = cloud.fs;
   let added = 0;
   for (const e of exampleData()) {
     e.room.lastText = e.msgs[e.msgs.length - 1].text;
@@ -2470,7 +2471,24 @@ async function addSampleConsultations() {
       for (const msg of e.msgs) {
         await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "rooms", e.room.id, "messages", msg.id), msg, { merge: true });
       }
-      await cloud.fs.setDoc(cloudRoomDoc(e.room.id), { createdAt: e.room.createdAt, lastTs: e.room.lastTs }, { merge: true });
+      // 旧ID形式(ex4m1など)で残った同内容の重複メッセージを削除
+      const oldIdPat = new RegExp("^" + e.room.id + "m\\d+$");
+      const msnap = await getDocs(collection(cloud.db, "workspaces", cloud.wid, "rooms", e.room.id, "messages"));
+      for (const d of msnap.docs) {
+        if (oldIdPat.test(d.id)) await deleteDoc(d.ref);
+      }
+      await cloud.fs.setDoc(cloudRoomDoc(e.room.id), { createdAt: e.room.createdAt, lastTs: e.room.lastTs, lastText: e.room.lastText }, { merge: true });
+      // 旧ID形式の案件(exc4など。現行はcex4形式)が重複していれば削除
+      if (e.caseObj) {
+        const oldCaseId = "exc" + e.room.id.replace(/^ex/, "");
+        if (oldCaseId !== e.caseObj.id && state.cases.some(c => c.id === oldCaseId)) {
+          await deleteDoc(doc(cloud.db, "workspaces", cloud.wid, "cases", oldCaseId));
+        }
+        // 現行IDの案件がまだ無ければ作成(旧IDのみ存在していた場合の補完)
+        if (!state.cases.some(c => c.id === e.caseObj.id)) {
+          await cloud.fs.setDoc(cloud.fs.doc(cloud.db, "workspaces", cloud.wid, "cases", e.caseObj.id), e.caseObj);
+        }
+      }
       continue;
     }
     const room = { ...e.room, ownerUid: myUid(), ownerEmail: (cloud.user && cloud.user.email) || e.room.ownerEmail || "" };
