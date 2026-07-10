@@ -400,7 +400,17 @@
   .sample-add:disabled { opacity: .6; cursor: default; }
   .sample-dl { display: flex; align-items: center; justify-content: center; width: 44px; flex-shrink: 0; border: 1px solid #cfe6d8; background: #f2fbf5; border-radius: 8px; color: #06874a; text-decoration: none; font-size: 15px; }
   .sample-dl:hover { background: #e3f6e9; }
-  .room-naiki-bar { margin: 12px 4px 4px; }
+  .room-naiki-btn {
+    flex-shrink: 0;
+    margin-left: 8px;
+    width: 34px; height: 34px;
+    border: 1px solid #d4d9e2;
+    border-radius: 8px;
+    background: #f5f7fa;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .room-naiki-btn:hover { background: #e9eef5; border-color: #06c755; }
   .mic-btn { background: #eef1f6; color: #333; }
   .mic-btn.recording { background: #ff3b30; color: #fff; }
   .case .answered-note { font-size: 12px; color: #06a04a; margin-top: 8px; }
@@ -1297,6 +1307,10 @@ function renderRoomList() {
     const ownerLabel = r.ownerName || r.ownerEmail;
     const owner = (roomFilter === "all" && ownerLabel) ? `<div class="room-owner">相談者: ${escapeHtml(ownerLabel)}</div>` : "";
     const mine = canDeleteRoom(r); // 自分の相談のみスワイプ削除可(財務は不可)
+    // 財務は一覧から直接、その相談をもとに社内ルールを更新できる
+    const naikiBtn = (cloud.on && cloud.role === "expert")
+      ? `<button class="room-naiki-btn" data-naiki-room="${r.id}" title="この相談から社内ルールを更新" type="button">📋</button>`
+      : "";
     const row = document.createElement("div");
     row.className = "room-row";
     row.innerHTML =
@@ -1309,6 +1323,7 @@ function renderRoomList() {
           ${owner}${tag}
         </div>
         <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>
+        ${naikiBtn}
       </div>`;
     chatLog.appendChild(row);
   }
@@ -1364,13 +1379,6 @@ function renderChat() {
     t.className = "msg other";
     t.innerHTML = '<div class="sender">🤖 AIアシスタント</div><div class="bubble"><span class="typing"><span></span><span></span><span></span></span></div>';
     chatLog.appendChild(t);
-  }
-  // 財務は各相談からも社内ルールを更新できる
-  if (cloud.on && cloud.role === "expert") {
-    const bar = document.createElement("div");
-    bar.className = "room-naiki-bar";
-    bar.innerHTML = `<button class="btn secondary" id="btnOpenRoomNaiki" type="button">📋 この相談から社内ルールを更新</button>`;
-    chatLog.appendChild(bar);
   }
   chatLog.scrollTop = chatLog.scrollHeight;
 }
@@ -1506,7 +1514,8 @@ chatLog.addEventListener("touchend", () => {
 
 // クリック: 削除 / ルームを開く / 選択肢送信
 chatLog.addEventListener("click", e => {
-  if (e.target.closest("#btnOpenRoomNaiki")) { openRoomNaikiModal(); return; }
+  const nb = e.target.closest("[data-naiki-room]");
+  if (nb) { openRoomNaikiModal(nb.dataset.naikiRoom); return; }
   const del = e.target.closest(".room-del");
   if (del) { deleteRoom(del.dataset.del); return; }
   const roomEl = e.target.closest(".room-item");
@@ -1521,18 +1530,30 @@ chatLog.addEventListener("click", e => {
   submitQuestion(btn.textContent);
 });
 
-// 相談から社内ルールを更新(財務・モーダル方式。メッセージ再描画の影響を受けない)
+// 相談から社内ルールを更新(財務・モーダル方式。一覧の📋ボタンから開く)
 const modalRoomNaiki = document.getElementById("modalRoomNaiki");
-function openRoomNaikiModal() {
+let naikiModalMessages = []; // 対象の相談のメッセージ(AI追記案の材料)
+async function openRoomNaikiModal(roomId) {
   document.getElementById("roomNaikiEdit").value = state.naiki || "";
   document.getElementById("roomNaikiSaved").style.display = "none";
   modalRoomNaiki.classList.add("show");
+  naikiModalMessages = [];
+  if (!roomId) return;
+  if (cloud.on) {
+    try {
+      const { collection, getDocs, query, orderBy } = cloud.fs;
+      const snap = await getDocs(query(collection(cloud.db, "workspaces", cloud.wid, "rooms", roomId, "messages"), orderBy("ts")));
+      naikiModalMessages = snap.docs.map(d => d.data());
+    } catch (e) { console.error(e); }
+  } else {
+    naikiModalMessages = state.roomMsgs[roomId] || [];
+  }
 }
 document.getElementById("btnRoomNaikiClose").addEventListener("click", () => modalRoomNaiki.classList.remove("show"));
 modalRoomNaiki.addEventListener("click", e => { if (e.target === modalRoomNaiki) modalRoomNaiki.classList.remove("show"); });
 document.getElementById("btnRoomNaikiSuggest").addEventListener("click", async () => {
-  if (!roomMessages.length) { alert("この相談にはまだやり取りがありません。"); return; }
-  const conv = roomMessages.map(m => {
+  if (!naikiModalMessages.length) { alert("この相談にはまだやり取りがありません。"); return; }
+  const conv = naikiModalMessages.map(m => {
     const who = m.role === "user" ? "質問者" : m.role === "expert" ? "専門家" : m.role === "ai" ? "AI" : "システム";
     return `${who}: ${m.text}`;
   }).join("\n");
