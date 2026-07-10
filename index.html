@@ -1573,39 +1573,70 @@ function backToRooms() {
   renderChat();
 }
 
-// チャット(相談)表示中のページ全体スワイプ:
+// チャット(相談)表示中のページ全体スワイプ(Tinder風に指へ追従して動く):
 //   左スワイプ → 相談一覧へ戻る
 //   右スワイプ → BAタブの該当質問(案件)へ移動(財務のみ。案件がなければBAタブへ)
 (function setupChatSwipe() {
   const panel = document.getElementById("panel-chat");
   if (!panel) return;
-  let sx = 0, sy = 0, tracking = false;
+  panel.style.touchAction = "pan-y"; // 縦スクロールはブラウザに任せ、横はこちらで扱う
+  let sx = 0, sy = 0, dx = 0, dragging = false, horiz = false;
+  const canRight = () => cloud.on && cloud.role === "expert";
+  function setDrag(x, animate) {
+    panel.style.transition = animate ? "transform .22s ease" : "none";
+    panel.style.transform = x ? `translateX(${x}px) rotate(${(x / 24).toFixed(2)}deg)` : "";
+  }
+  function flyOut(dir, done) {
+    const w = panel.clientWidth || 360;
+    panel.style.transition = "transform .22s ease-out";
+    panel.style.transform = `translateX(${dir * w * 1.2}px) rotate(${dir * 10}deg)`;
+    setTimeout(() => {
+      done();
+      // 遷移後は無アニメーションで元の位置に戻しておく
+      setDrag(0, false);
+      setTimeout(() => { panel.style.transition = ""; }, 30);
+    }, 220);
+  }
   panel.addEventListener("touchstart", e => {
-    if (e.touches.length !== 1) { tracking = false; return; }
-    sx = e.touches[0].clientX; sy = e.touches[0].clientY; tracking = true;
+    if (e.touches.length !== 1 || !currentRoomId) { dragging = false; return; }
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    dx = 0; dragging = true; horiz = false;
   }, { passive: true });
-  panel.addEventListener("touchend", e => {
-    if (!tracking) return;
-    tracking = false;
-    if (!currentRoomId) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.abs(dx) < 70 || Math.abs(dx) <= Math.abs(dy) * 2) return; // 横方向の十分なスワイプのみ
-    if (dx < 0) {
-      // 左スワイプ: 相談一覧へ
-      backToRooms();
-      return;
+  panel.addEventListener("touchmove", e => {
+    if (!dragging) return;
+    const t = e.touches[0];
+    dx = t.clientX - sx;
+    const dy = t.clientY - sy;
+    if (!horiz) {
+      // 横方向の意図がはっきりしてから追従を始める(縦スクロールを邪魔しない)
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) horiz = true;
+      else if (Math.abs(dy) > 16) { dragging = false; setDrag(0, false); return; }
     }
-    // 右スワイプ: BAの該当質問へ(財務のみ)
-    if (cloud.on && cloud.role === "expert") {
+    if (horiz) {
+      // 右スワイプの遷移先がないユーザーは右方向を重くする(引っぱっても戻る予告)
+      const x = (dx > 0 && !canRight()) ? dx / 4 : dx;
+      setDrag(x, false);
+    }
+  }, { passive: true });
+  const finish = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (!horiz || !currentRoomId) { setDrag(0, true); return; }
+    const commit = Math.abs(dx) > Math.max(80, (panel.clientWidth || 320) * 0.25);
+    if (dx < 0 && commit) {
+      flyOut(-1, () => backToRooms());
+    } else if (dx > 0 && commit && canRight()) {
       const roomId = currentRoomId;
-      if (state.cases.some(c => c.roomId === roomId) && !isDoneRoomId(roomId)) {
-        jumpToCase(roomId);
-      } else {
-        activateTab("expert");
-      }
+      flyOut(1, () => {
+        if (state.cases.some(c => c.roomId === roomId) && !isDoneRoomId(roomId)) jumpToCase(roomId);
+        else activateTab("expert");
+      });
+    } else {
+      setDrag(0, true); // しきい値未満: スナップバック
     }
-  }, { passive: true });
+  };
+  panel.addEventListener("touchend", finish, { passive: true });
+  panel.addEventListener("touchcancel", () => { if (dragging) { dragging = false; setDrag(0, true); } }, { passive: true });
 })();
 
 document.getElementById("btnNewRoom").addEventListener("click", createRoom);
