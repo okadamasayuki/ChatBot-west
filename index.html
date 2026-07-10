@@ -1517,6 +1517,12 @@ function renderCase(c) {
   let html = `${label}<div class="q-text">${escapeHtml(c.question)}</div>
     <div class="reason">💡 AIの判断: ${escapeHtml(c.reason)}</div>`;
 
+  if (c.roomId) {
+    html += `<div class="actions" style="margin-top:8px;">
+      <button class="btn secondary tiny" data-action="open-room" data-case="${c.id}">💬 元の相談を開く</button>
+    </div>`;
+  }
+
   if (c.status === "answered") {
     html += `<div class="reason" style="background:#f0fbf4;">📨 送信済み回答:<br>${escapeHtml(c.answer)}</div>`;
     if (c.handledBy) html += `<div class="handled-by">🧑‍💼 対応者: ${escapeHtml(c.handledBy)}</div>`;
@@ -1648,6 +1654,12 @@ expertList.addEventListener("click", async e => {
   if (!btn) return;
   const c = state.cases.find(x => x.id === btn.dataset.case);
   if (!c) return;
+
+  // 元の相談(トークルーム)を開く
+  if (btn.dataset.action === "open-room") {
+    if (c.roomId) { activateTab("chat"); openRoom(c.roomId); }
+    return;
+  }
 
   // 内規更新パネルの開閉
   if (btn.dataset.action === "toggle-naiki") {
