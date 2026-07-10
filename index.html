@@ -103,6 +103,20 @@
   }
   #roomBar button:hover { background: #f0f3f7; }
   #btnBackRooms { font-size: 16px; line-height: 1; }
+  #roomFilters { display: flex; gap: 0; flex: 1; }
+  #roomFilters .rf {
+    flex: 1;
+    border: 1px solid #cfd6e0;
+    background: #fff;
+    color: #55627a;
+    font-size: 12.5px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  #roomFilters .rf:first-child { border-radius: 8px 0 0 8px; border-right: none; }
+  #roomFilters .rf:last-child { border-radius: 0 8px 8px 0; }
+  #roomFilters .rf.active { background: #06c755; color: #fff; border-color: #06c755; }
+  .room-owner { font-size: 10px; color: #9aa6b6; margin-top: 2px; }
   #roomTitle {
     flex: 1;
     font-size: 14px;
@@ -341,6 +355,9 @@
     padding: 20px;
     width: 100%;
     max-width: 380px;
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .modal h2 { font-size: 15px; margin-bottom: 10px; }
   .modal p { font-size: 12px; color: #666; line-height: 1.6; margin-bottom: 12px; }
@@ -388,9 +405,13 @@
   <!-- 質問者パネル -->
   <div class="panel active" id="panel-chat">
     <div id="roomBar">
-      <button id="btnBackRooms" title="相談一覧へ">←</button>
-      <div id="roomTitle">相談一覧</div>
-      <button id="btnNewRoom">＋ 新規相談</button>
+      <button id="btnBackRooms" title="一覧へ戻る">←</button>
+      <div id="roomFilters">
+        <button class="rf active" data-filter="mine">自分の相談</button>
+        <button class="rf" data-filter="all">相談一覧</button>
+      </div>
+      <div id="roomTitle">相談</div>
+      <button id="btnNewRoom">＋ 新規</button>
     </div>
     <div id="chatLog"></div>
     <div id="inputBar">
@@ -623,12 +644,17 @@ function activateTab(name) {
   if (panel) panel.classList.add("active");
 }
 
-// 役割に応じてタブ表示を切替: 担当者(質問のみ)は専門家タブを非表示
+// 役割に応じてタブ・相談フィルタを切替
 function applyRole() {
   const expertTab = document.querySelector('#tabs .tab[data-tab="expert"]');
   const questionerOnly = cloud.on && cloud.role === "questioner";
   if (expertTab) expertTab.style.display = questionerOnly ? "none" : "";
   if (questionerOnly) activateTab("chat");
+  // 担当者は「相談一覧(全体)」を使えない。財務・ローカルは両方使える。
+  const allBtn = document.querySelector('#roomFilters .rf[data-filter="all"]');
+  if (allBtn) allBtn.style.display = questionerOnly ? "none" : "";
+  if (questionerOnly) roomFilter = "mine";
+  updateFilterButtons();
 }
 
 async function initCloud() {
@@ -825,10 +851,14 @@ const btnSend = document.getElementById("btnSend");
 const inputBar = document.getElementById("inputBar");
 
 let pendingTyping = false;
-let rooms = [];            // 相談ルーム一覧 [{id,title,createdAt,lastText,lastTs}]
+let rooms = [];            // 相談ルーム一覧 [{id,title,createdAt,lastText,lastTs,ownerUid,ownerEmail}]
 let currentRoomId = null;  // 開いているルーム(null=一覧表示)
 let roomMessages = [];     // 現在ルームのメッセージ
 let roomMsgUnsub = null;   // クラウド: 現在ルームのメッセージ購読解除
+let roomFilter = "mine";   // "mine"=自分の相談 / "all"=相談一覧(全体)
+
+function myUid() { return cloud.user ? cloud.user.uid : "local"; }
+function isMyRoom(r) { return !r.ownerUid || r.ownerUid === myUid(); } // 所有者未設定(旧データ/サンプル)は自分扱い
 
 function snippet(t, n) { t = (t || "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n) + "…" : t; }
 function fmtDate(iso) {
@@ -865,17 +895,27 @@ function addMessage(msg, roomId) {
   renderChat();
 }
 
+function updateFilterButtons() {
+  document.querySelectorAll("#roomFilters .rf").forEach(b => b.classList.toggle("active", b.dataset.filter === roomFilter));
+}
+function setRoomFilter(f) { roomFilter = f; updateFilterButtons(); renderChat(); }
+
 function updateRoomBar() {
   const back = document.getElementById("btnBackRooms");
   const title = document.getElementById("roomTitle");
   const nw = document.getElementById("btnNewRoom");
+  const filters = document.getElementById("roomFilters");
   if (!currentRoomId) {
     back.style.display = "none";
     nw.style.display = "inline-block";
-    title.textContent = "相談一覧";
+    title.style.display = "none";
+    filters.style.display = "flex";
+    updateFilterButtons();
   } else {
     back.style.display = "inline-block";
     nw.style.display = "none";
+    filters.style.display = "none";
+    title.style.display = "block";
     const r = currentRoom();
     title.textContent = r ? (r.title || "相談") : "相談";
   }
@@ -883,17 +923,22 @@ function updateRoomBar() {
 
 function renderRoomList() {
   chatLog.innerHTML = "";
-  if (rooms.length === 0) {
-    chatLog.innerHTML = '<div class="room-empty">まだ相談はありません。<br>右上の「＋ 新規相談」から質問を始めてください。</div>';
+  const list = (roomFilter === "mine") ? rooms.filter(isMyRoom) : rooms.slice();
+  if (list.length === 0) {
+    chatLog.innerHTML = roomFilter === "mine"
+      ? '<div class="room-empty">あなたの相談はまだありません。<br>右上の「＋ 新規」から質問を始めてください。</div>'
+      : '<div class="room-empty">相談はまだありません。</div>';
     return;
   }
-  const sorted = rooms.slice().sort((a, b) => (b.lastTs || "").localeCompare(a.lastTs || ""));
+  const sorted = list.sort((a, b) => (b.lastTs || "").localeCompare(a.lastTs || ""));
   for (const r of sorted) {
     const openCase = state.cases.some(c => c.roomId === r.id && c.status !== "answered");
     const answered = state.cases.some(c => c.roomId === r.id && c.status === "answered");
     let tag = "";
     if (openCase) tag = '<div class="room-tag">専門家対応中</div>';
     else if (answered) tag = '<div class="room-tag done">専門家回答済み</div>';
+    // 「相談一覧(全体)」表示のときは相談者を表示
+    const owner = (roomFilter === "all" && r.ownerEmail) ? `<div class="room-owner">相談者: ${escapeHtml(r.ownerEmail)}</div>` : "";
     const div = document.createElement("div");
     div.className = "room-item";
     div.dataset.room = r.id;
@@ -902,7 +947,7 @@ function renderRoomList() {
       <div class="room-main">
         <div class="room-title">${escapeHtml(r.title || "相談")}</div>
         <div class="room-preview">${escapeHtml(snippet(r.lastText, 40) || "(メッセージなし)")}</div>
-        ${tag}
+        ${owner}${tag}
       </div>
       <div class="room-meta">${r.lastTs ? fmtDate(r.lastTs) : ""}</div>`;
     chatLog.appendChild(div);
@@ -959,7 +1004,11 @@ function renderChat() {
 // 新規ルーム作成
 function createRoom() {
   if (cloud.configured && !cloud.user) { openLogin(); return; }
-  const room = { id: uid(), title: "新しい相談", createdAt: nowIso(), lastText: "", lastTs: nowIso() };
+  roomFilter = "mine"; // 新規作成時は自分の相談ビューへ
+  const room = {
+    id: uid(), title: "新しい相談", createdAt: nowIso(), lastText: "", lastTs: nowIso(),
+    ownerUid: myUid(), ownerEmail: cloud.user ? (cloud.user.email || "") : ""
+  };
   if (cloud.on) {
     cloud.fs.setDoc(cloudRoomDoc(room.id), room).catch(e => console.error(e));
     rooms.unshift(room); // 楽観的追加(snapshotで整合)
@@ -999,6 +1048,9 @@ function backToRooms() {
 
 document.getElementById("btnNewRoom").addEventListener("click", createRoom);
 document.getElementById("btnBackRooms").addEventListener("click", backToRooms);
+document.querySelectorAll("#roomFilters .rf").forEach(b => {
+  b.addEventListener("click", () => setRoomFilter(b.dataset.filter));
+});
 
 // クリック: ルーム項目を開く / 選択肢ボタンを送信
 chatLog.addEventListener("click", e => {
@@ -1386,7 +1438,7 @@ function exampleData() {
   const ESC = "ご質問ありがとうございます。この内容は会計の専門家による確認が必要なため、専門家におつなぎしました。回答までしばらくお待ちください。";
   return [
     {
-      room: { id: "ex1", title: "減価償却はどの方法で計算すればいい?", createdAt: "2026-07-08T01:00:00.000Z", lastText: "", lastTs: "2026-07-08T01:01:00.000Z" },
+      room: { id: "ex1", title: "減価償却はどの方法で計算すればいい?", createdAt: "2026-07-08T01:00:00.000Z", lastText: "", lastTs: "2026-07-08T01:01:00.000Z", ownerEmail: "tanaka@example.com" },
       msgs: [
         { id: "ex1m1", role: "user", text: "減価償却はどの方法で計算すればいいですか?", ts: "2026-07-08T01:00:00.000Z" },
         { id: "ex1m2", role: "ai", text: "当事務所の内規では、減価償却は定額法で計算します。取得価額を耐用年数にわたって毎期均等に費用計上してください。例えば取得価額120万円・耐用年数6年なら、毎年20万円ずつ償却します。", ts: "2026-07-08T01:01:00.000Z" }
@@ -1394,7 +1446,7 @@ function exampleData() {
       qa: { question: "減価償却はどの方法で計算すればいいですか?", answered_by: "AI", answer: "当事務所の内規では定額法で計算します。取得価額を耐用年数で毎期均等に費用計上します。", asked_at: "2026-07-08T01:00:00.000Z", answered_at: "2026-07-08T01:01:00.000Z" }
     },
     {
-      room: { id: "ex2", title: "3万円のプリンターの勘定科目は?", createdAt: "2026-07-08T04:00:00.000Z", lastText: "", lastTs: "2026-07-08T04:01:00.000Z" },
+      room: { id: "ex2", title: "3万円のプリンターの勘定科目は?", createdAt: "2026-07-08T04:00:00.000Z", lastText: "", lastTs: "2026-07-08T04:01:00.000Z", ownerEmail: "tanaka@example.com" },
       msgs: [
         { id: "ex2m1", role: "user", text: "3万円のプリンターを買いました。勘定科目は何になりますか?", ts: "2026-07-08T04:00:00.000Z" },
         { id: "ex2m2", role: "ai", text: "取得価額が10万円未満の物品は「消耗品費」として購入時に一括で費用計上できます。3万円のプリンターは消耗品費で処理して問題ありません(資産計上・減価償却は不要です)。", ts: "2026-07-08T04:01:00.000Z" }
@@ -1402,7 +1454,7 @@ function exampleData() {
       qa: { question: "3万円のプリンターの勘定科目は?", answered_by: "AI", answer: "10万円未満のため消耗品費で一括計上できます。", asked_at: "2026-07-08T04:00:00.000Z", answered_at: "2026-07-08T04:01:00.000Z" }
     },
     {
-      room: { id: "ex3", title: "飲食代は交際費?会議費?", createdAt: "2026-07-09T02:00:00.000Z", lastText: "", lastTs: "2026-07-09T02:01:00.000Z" },
+      room: { id: "ex3", title: "飲食代は交際費?会議費?", createdAt: "2026-07-09T02:00:00.000Z", lastText: "", lastTs: "2026-07-09T02:01:00.000Z", ownerEmail: "suzuki@example.com" },
       msgs: [
         { id: "ex3m1", role: "user", text: "取引先との飲食代は交際費ですか?会議費ですか?", ts: "2026-07-09T02:00:00.000Z" },
         { id: "ex3m2", role: "ai", text: "1人あたり5,000円以下で、日付・参加者・目的などの要件を満たす飲食は「会議費」として処理できます。これを超える接待目的の飲食は「交際費」になります。領収書に参加人数・氏名を残しておきましょう。", ts: "2026-07-09T02:01:00.000Z" }
@@ -1410,7 +1462,7 @@ function exampleData() {
       qa: { question: "飲食代は交際費?会議費?", answered_by: "AI", answer: "1人5,000円以下の要件を満たせば会議費、超えると交際費です。", asked_at: "2026-07-09T02:00:00.000Z", answered_at: "2026-07-09T02:01:00.000Z" }
     },
     {
-      room: { id: "ex4", title: "役員報酬を期中に増額できる?", createdAt: "2026-07-09T05:00:00.000Z", lastText: "", lastTs: "2026-07-09T05:10:00.000Z" },
+      room: { id: "ex4", title: "役員報酬を期中に増額できる?", createdAt: "2026-07-09T05:00:00.000Z", lastText: "", lastTs: "2026-07-09T05:10:00.000Z", ownerEmail: "suzuki@example.com" },
       msgs: [
         { id: "ex4m1", role: "user", text: "役員報酬を今期の途中から増額したいのですが、損金算入できますか?", ts: "2026-07-09T05:00:00.000Z" },
         { id: "ex4m2", role: "ai", text: ESC, ts: "2026-07-09T05:01:00.000Z" },
@@ -1427,7 +1479,7 @@ function exampleData() {
       qa: { question: "役員報酬を今期の途中から増額できる?", answered_by: "専門家", selected_option: "業績悪化改定など例外に該当するか個別確認が必要と案内する", answer: "原則は損金不算入の可能性。期中増額は例外該当の個別確認が必要。担当税理士に相談を。", asked_at: "2026-07-09T05:00:00.000Z", answered_at: "2026-07-09T05:10:00.000Z" }
     },
     {
-      room: { id: "ex5", title: "500万円の機械を全額経費にできる?", createdAt: "2026-07-10T00:30:00.000Z", lastText: "", lastTs: "2026-07-10T00:31:00.000Z" },
+      room: { id: "ex5", title: "500万円の機械を全額経費にできる?", createdAt: "2026-07-10T00:30:00.000Z", lastText: "", lastTs: "2026-07-10T00:31:00.000Z", ownerEmail: "sato@example.com" },
       msgs: [
         { id: "ex5m1", role: "user", text: "500万円の機械を導入予定です。全額その年の経費にできますか?", ts: "2026-07-10T00:30:00.000Z" },
         { id: "ex5m2", role: "ai", text: ESC, ts: "2026-07-10T00:31:00.000Z" }
