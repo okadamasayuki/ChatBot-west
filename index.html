@@ -571,8 +571,7 @@
       <div id="manualNaikiSaved" class="nr-saved" style="display:none;"></div>
       <div class="row" style="margin-top:12px;flex-wrap:wrap;">
         <button class="btn secondary" id="btnManualNaikiClose">閉じる</button>
-        <button class="btn secondary" id="btnManualNaikiAppend">内規に追加</button>
-        <button class="btn primary" id="btnManualNaikiReplace">内規を置き換える</button>
+        <button class="btn primary" id="btnManualNaikiAppend">内規に追加</button>
       </div>
     </div>
   </div>
@@ -2139,14 +2138,6 @@ document.getElementById("btnManualNaikiAppend").addEventListener("click", () => 
   state.naiki = cur + (cur ? "\n\n" : "") + add;
   saveState(); saveNaikiShared(); renderNaiki();
   showManualNaikiSaved("✓ 内規の末尾に追加しました。全員の回答に反映されます。");
-});
-document.getElementById("btnManualNaikiReplace").addEventListener("click", () => {
-  const text = document.getElementById("manualNaikiText").value.trim();
-  if (!text) { alert("内容が空です。"); return; }
-  if (!confirm("現在の内規をこの内容で置き換えます。よろしいですか?")) return;
-  state.naiki = text;
-  saveState(); saveNaikiShared(); renderNaiki();
-  showManualNaikiSaved("✓ 内規を置き換えました。全員の回答に反映されます。");
 });
 
 // サンプルマニュアルをクリックで追加(PDFを取得→文字抽出→追加。固定IDで重複なし)
