@@ -2724,8 +2724,14 @@ function updateBadges() {
 
 document.querySelectorAll("#tabs .tab").forEach(tab => {
   tab.addEventListener("click", () => {
-    if (tab.dataset.tab === activeTabName) return;
-    activateTab(tab.dataset.tab);
+    const name = tab.dataset.tab;
+    // 相談一覧タブは常に一覧を表示する(チャットを開いていたら閉じる)
+    if (name === "chat" && currentRoomId) {
+      if (name === activeTabName) { backToRooms(); return; } // ←ボタンと同じ挙動(スライドで一覧へ)
+      closeRoomView(); // 別タブから来たときはそのまま閉じて一覧を出す
+    }
+    if (name === activeTabName) return;
+    activateTab(name);
     historyPushEntry(); // タブ移動もブラウザの「戻る」で辿れるようにする
   });
 });
