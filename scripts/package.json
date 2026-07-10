@@ -1,0 +1,9 @@
+{
+  "name": "chatbot-west-scripts",
+  "private": true,
+  "type": "module",
+  "description": "管理用スクリプト(担当者・財務アカウントの一括作成など)",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
