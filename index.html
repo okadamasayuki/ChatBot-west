@@ -2725,10 +2725,12 @@ function updateBadges() {
 document.querySelectorAll("#tabs .tab").forEach(tab => {
   tab.addEventListener("click", () => {
     const name = tab.dataset.tab;
-    // 相談一覧タブは常に一覧を表示する(チャットを開いていたら閉じる)
+    // 相談一覧タブは常に一覧を表示する(チャットを開いていたら閉じる)。
+    // history.back()は使わない: BAから相談に飛んだ直後だと「ひとつ前=BAタブ」に戻ってしまうため、
+    // 履歴を遡らず一覧の状態を新しく履歴に積む(←ボタン・スワイプは従来どおり「来た場所へ戻る」)
     if (name === "chat" && currentRoomId) {
-      if (name === activeTabName) { backToRooms(); return; } // ←ボタンと同じ挙動(スライドで一覧へ)
-      closeRoomView(); // 別タブから来たときはそのまま閉じて一覧を出す
+      closeRoomView(); // スライドで一覧へ
+      if (name === activeTabName) { historyPushEntry(); return; }
     }
     if (name === activeTabName) return;
     activateTab(name);
